@@ -1,0 +1,20 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+
+# Backend
+backend/__pycache__/
+backend/venv/
+backend/.venv/
+backend/*.db
+backend/*.sqlite3
+backend/.env
+# Engine executable (Too large for GitHub)
+backend/engine/stockfish.exe
+backend/engine/stockfish
+# Általános kényes fájlok
+.env
+.DS_Store
+.vscode/

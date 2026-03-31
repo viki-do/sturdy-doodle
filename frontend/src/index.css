@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Ide jöhetnek az egyedi színeid a Tailwind 4 új szintaxisával */
+@theme {
+  --color-chess-light: #eeeed2;
+  --color-chess-dark: #769656;
+  --color-chess-highlight: rgba(242, 245, 102, 0.8);
+  --color-chess-board-border: #262421;
+  --color-chess-bg: #312e2b;
+  --color-chess-panel: #262421;
+  --color-chess-panel-header: #21201d;
+}
+
+@utility no-scrollbar {
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@utility check-alert-king {
+  /* Megadjuk a kért "erősebb" színeket */
+  --alert-strong-dark: #DC2712;
+  --alert-strong-light: #FD1D19;
+  
+  /* Animáció definiálása: 0.6 mp, 2 ismétlés, lágy indulás/érkezés */
+  animation: king-flash 0.6s ease-in-out 2;
+}
+
+@keyframes king-flash {
+  0%, 100% {
+    /* Kezdetben és a végén az eredeti szín (alap vagy kijelölt) marad */
+  }
+  50% {
+    /* A villanás közepén átvált az erősebb pirosra, 
+       a szülő `div` `isDark` státuszától függően */
+    background-color: var(--alert-strong-dark);
+  }
+}
