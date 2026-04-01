@@ -46,5 +46,5 @@ class Move(Base):
     id = Column(Integer, primary_key=True, index=True)
     game_id = Column(UUID(as_uuid=True), ForeignKey("games.id"))
     move_number = Column(Integer, nullable=False)
-    notation = Column(String(10), nullable=False)
+    notation = Column(String(20), nullable=False)
     fen_before = Column(Text, nullable=False)

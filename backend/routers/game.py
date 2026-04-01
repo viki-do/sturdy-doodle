@@ -84,28 +84,68 @@ def get_valid_moves(data: dict, user_id: str = Depends(get_current_user_id), db:
 
 @router.post("/move")
 def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    # ...
     game_uuid = uuid.UUID(data.get("game_id"))
     board = rebuild_board(game_uuid, db)
     move_uci = data.get("move")
+    
     try:
+        # 1. Játékos lépése
         user_move = chess.Move.from_uci(move_uci)
         user_move_san = board.san(user_move)
+        
+        # Ellenőrizzük, hogy a játékos ütött-e
+        user_is_capture = board.is_capture(user_move)
+        
         board.push(user_move)
+        user_is_check = board.is_check()
+        
+        # 2. Bot válasza (Stockfish)
         stock_san, m_from, m_to = "", "", ""
+        bot_is_capture = False
+        bot_is_check = False
+        
         if not board.is_game_over():
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.1))
-            m_from, m_to = chess.square_name(result.move.from_square), chess.square_name(result.move.to_square)
+            result = engine_proc.play(board, chess.engine.Limit(time=0.5)) # Rövidebb idő a gyorsabb válaszért
+            
+            m_from = chess.square_name(result.move.from_square)
+            m_to = chess.square_name(result.move.to_square)
             stock_san = board.san(result.move)
+            bot_is_capture = board.is_capture(result.move) # Bot ütött-e?
+            
             board.push(result.move)
+            bot_is_check = board.is_check() # Bot sakkot adott-e?
             engine_proc.quit()
-        new_move = models.Move(game_id=game_uuid, move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), notation=f"{user_move_san} {stock_san}".strip(), fen_before=board.fen())
+        
+        # Mentés
+        new_move = models.Move(
+            game_id=game_uuid, 
+            move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+            notation=f"{user_move_san} {stock_san}".strip(), 
+            fen_before=board.fen()
+        )
         db.add(new_move)
         db.commit()
-        return {"new_fen": board.fen(), "is_checkmate": board.is_checkmate(), "last_move_from": m_from if m_from else move_uci[:2], "last_move_to": m_to if m_to else move_uci[2:4]}
-    except: raise HTTPException(status_code=400, detail="Lépési hiba")
-
+        
+        # Visszaküldünk minden infót a hangokhoz
+        return {
+            "new_fen": board.fen(),
+            "is_checkmate": board.is_checkmate(),
+            "user_move": {
+                "is_capture": user_is_capture,
+                "is_check": user_is_check
+            },
+            "bot_move": {
+                "from": m_from,
+                "to": m_to,
+                "is_capture": bot_is_capture,
+                "is_check": bot_is_check
+            }
+        }
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail="Lépési hiba")
+    
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
     try:

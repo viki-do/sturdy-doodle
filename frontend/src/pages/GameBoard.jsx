@@ -11,10 +11,9 @@ const GameBoard = () => {
     const { 
         gameId, fen, selectedSquare, validMoves, history, status, isDragging, viewIndex,
         fetchGameState, startNewGame, handleResign, executeMove, getSquareName,
-        setSelectedSquare, setValidMoves, setIsDragging, setHoverSquare, setMousePos, setDragOffset, setIsAlert, setViewIndex, setFen, setLastMove, token, API_BASE
+        setSelectedSquare, setValidMoves, setIsDragging, setHoverSquare, setMousePos, setDragOffset, setIsAlert, setViewIndex, setFen, setLastMove, setGameId, playSound, token, API_BASE
     } = gameLogic;
 
-    // --- NAVIGATION ---
     const goToMove = useCallback((index) => {
         if (index >= -1 && index < history.length) {
             setViewIndex(index);
@@ -26,8 +25,7 @@ const GameBoard = () => {
         }
     }, [history, setViewIndex, setFen, setLastMove]);
 
-    // --- MOUSE HANDLERS ---
-    const handleMouseDown = async (e, row, col) => {
+   const handleMouseDown = async (e, row, col) => {
         const rect = e.currentTarget.getBoundingClientRect();
         setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
         setMousePos({ x: e.clientX, y: e.clientY });
@@ -35,26 +33,51 @@ const GameBoard = () => {
         if (!gameId || gameId === "null" || viewIndex !== -1) return;
         const square = getSquareName(row, col);
 
-        if (selectedSquare) {
-            if (validMoves.includes(square)) { await executeMove(selectedSquare, square); return; }
-            const gameInstance = new Chess(fen);
-            if (gameInstance.inCheck() && square !== selectedSquare) { setIsAlert(true); setTimeout(() => setIsAlert(false), 400); }
-        }
-
+        // 1. Tábla belső reprezentációjának kinyerése a FEN-ből
         const pieces = fen.split(' ')[0].split('/').map(r => {
             const line = [];
-            for (let char of r) { if (isNaN(char)) line.push(char); else for (let i = 0; i < parseInt(char); i++) line.push(null); }
+            for (let char of r) { 
+                if (isNaN(char)) line.push(char); 
+                else for (let i = 0; i < parseInt(char); i++) line.push(null); 
+            }
             return line;
         });
 
         const piece = pieces[row] ? pieces[row][col] : null;
+
+        // 2. HA már van kijelölt bábu ÉS egy érvényes lépésre kattintunk
+        if (selectedSquare && validMoves.includes(square)) {
+            await executeMove(selectedSquare, square);
+            return;
+        }
+
+        // 3. HA saját báburól van szó (Nagybetű = Fehér), akkor kijelöljük
         if (piece && status === "ongoing" && piece === piece.toUpperCase()) {
-            setSelectedSquare(square); setIsDragging(true); setHoverSquare(square);
+            setSelectedSquare(square); 
+            setIsDragging(true); 
+            setHoverSquare(square);
             try {
-                const res = await axios.post(`${API_BASE}/get-valid-moves`, { game_id: gameId, square: square }, { headers: { Authorization: `Bearer ${token}` } });
+                const res = await axios.post(`${API_BASE}/get-valid-moves`, 
+                    { game_id: gameId, square: square }, 
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
                 setValidMoves(res.data.valid_moves || []);
-            } catch (err) { console.error(err); setValidMoves([]); }
-        } else { setSelectedSquare(null); setValidMoves([]); setHoverSquare(null); }
+            } catch (err) { 
+                console.error(err); 
+                setValidMoves([]); 
+            }
+        } 
+        // 4. HA nem saját bábura kattintottunk, és nem is érvényes lépésmezőre
+        else {
+            if (selectedSquare && square !== selectedSquare) {
+                playSound('illegal');
+                setIsAlert(true);
+                setTimeout(() => setIsAlert(false), 400);
+            }
+            setSelectedSquare(null);
+            setValidMoves([]);
+            setHoverSquare(null);
+        }
     };
 
     const handleMouseUp = async (row, col) => {
@@ -63,14 +86,14 @@ const GameBoard = () => {
         if (selectedSquare && target !== selectedSquare) {
             if (validMoves.includes(target)) await executeMove(selectedSquare, target);
             else { 
-                const gameInstance = new Chess(fen);
-                if (gameInstance.inCheck()) { setIsAlert(true); setTimeout(() => setIsAlert(false), 400); }
+                playSound('illegal');
+                setIsAlert(true); 
+                setTimeout(() => setIsAlert(false), 400);
                 setIsDragging(false); 
             }
         } else setIsDragging(false);
     };
 
-    // --- EFFECTS ---
     useEffect(() => {
         const handleMouseMove = (e) => {
             if (isDragging) {
@@ -89,12 +112,23 @@ const GameBoard = () => {
     useEffect(() => {
         const initialize = async () => {
             if (!token || status === "resigned") return;
-            const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
-            if (res.data.game_id && res.data.game_id !== "null") { fetchGameState(res.data.game_id); }
-            else if (!localStorage.getItem('chessGameId')) startNewGame();
+            try {
+                const res = await axios.get(`${API_BASE}/get-active-game`, { 
+                    headers: { Authorization: `Bearer ${token}` } 
+                });
+                
+                if (res.data.game_id && res.data.game_id !== "null") {
+                    setGameId(res.data.game_id); 
+                    fetchGameState(res.data.game_id);
+                } else {
+                    startNewGame();
+                }
+            } catch (e) {
+                console.error("Initialization error", e);
+            }
         };
         initialize();
-    }, [token, status, fetchGameState, startNewGame, API_BASE]);
+    }, [token, API_BASE, fetchGameState, startNewGame, status, setGameId]);
 
     const renderNotation = (text) => {
         if (!text || text === "start") return "";
@@ -117,7 +151,6 @@ const GameBoard = () => {
                         )}
                     </AnimatePresence>
                 </div>
-
                 <div className="w-95 h-170 bg-chess-panel rounded-sm flex flex-col">
                     <div className="p-3.75 bg-chess-panel-header border-b border-chess-bg text-[#bab9b8] text-[14px]">Move List</div>
                     <div className="flex-1 overflow-y-auto p-2.5 no-scrollbar">

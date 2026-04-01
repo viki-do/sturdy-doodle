@@ -1,4 +1,4 @@
-import { useState,  useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { Chess } from 'chess.js';
 
@@ -26,6 +26,13 @@ export const useChessGame = () => {
         return `${filesArr[col]}${8 - row}`;
     };
 
+    const playSound = useCallback((soundName) => {
+        const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
+        audio.play().catch(err => {
+            console.log(`Audio play blocked or not found: ${soundName}`);
+        });
+    }, []);
+
     const fetchGameState = useCallback(async (id) => {
         if (!id || id === "null" || !token) return;
         try {
@@ -33,6 +40,8 @@ export const useChessGame = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.data.history) {
+                setGameId(id);
+                localStorage.setItem('chessGameId', id);
                 setHistory(res.data.history);
                 setStatus("ongoing"); 
                 setViewIndex(-1); 
@@ -43,7 +52,7 @@ export const useChessGame = () => {
                 }
             }
         } catch (err) { console.error(err); }
-    }, [token]);
+    }, [token, API_BASE]);
 
     const startNewGame = useCallback(async () => {
         try {
@@ -59,39 +68,110 @@ export const useChessGame = () => {
             setHistory([]);
             setViewIndex(-1);
             setStatus("ongoing");
-        } catch (err) { console.error(err); }
-    }, [userId, token]);
+            playSound('game-start'); 
+        } catch (err) { 
+            console.error("Hiba az új játék indításakor:", err);
+        }
+    }, [userId, token, API_BASE, playSound]);
 
     const executeMove = async (from, to) => {
+        const chess = new Chess(fen);
+        const moveAttempt = chess.move({ from, to, promotion: 'q' });
+
+        if (!moveAttempt) {
+            playSound('illegal');
+            setIsAlert(true);
+            setTimeout(() => setIsAlert(false), 400);
+            return;
+        }
+
+        if (moveAttempt.captured) playSound('capture');
+        else playSound('move');
+
         try {
             const res = await axios.post(`${API_BASE}/move`,
                 { game_id: gameId, move: `${from}${to}` },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            setFen(res.data.new_fen);
-            if (res.data.last_move_from) setLastMove({ from: res.data.last_move_from, to: res.data.last_move_to });
-            await fetchGameState(gameId);
-            if (res.data.is_checkmate) setStatus("checkmate");
-        } catch (err) { console.error(err); }
+
+            setTimeout(() => {
+                setFen(res.data.new_fen);
+                const bot = res.data.bot_move;
+                if (bot && bot.from) {
+                    setLastMove({ from: bot.from, to: bot.to });
+                    if (res.data.is_checkmate) playSound('checkmate');
+                    else if (bot.is_check) playSound('move-check');
+                    else if (bot.is_capture) playSound('capture');
+                    else playSound('move');
+                }
+                fetchGameState(gameId);
+            }, 500);
+
+        } catch (err) {
+            console.error(err);
+            playSound('illegal');
+        }
+        
         setSelectedSquare(null);
         setValidMoves([]);
         setIsDragging(false);
     };
-
-    const handleResign = async () => {
+const handleResign = async () => {
         if (!window.confirm("Biztosan feladod a játszmát?")) return;
-        localStorage.removeItem('chessGameId');
+        
         const currentId = gameId;
+        
+        // 1. Hang lejátszása azonnal
+        playSound('game-end'); 
+        
+        // 2. Állapotok frissítése
+        localStorage.removeItem('chessGameId');
         setGameId(null);
         setStatus("resigned");
+        
         try {
-            await axios.post(`${API_BASE}/resign-game`, { game_id: currentId }, { headers: { Authorization: `Bearer ${token}` } });
-        } catch (err) { console.error(err); }
+            // 3. Szerver értesítése
+            await axios.post(`${API_BASE}/resign-game`, 
+                { game_id: currentId }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+        } catch (err) { 
+            console.error("Hiba a feladás során:", err); 
+        }
     };
 
+    useEffect(() => {
+        let interval;
+        if (gameId && status === "ongoing") {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+
+                    if (res.data.history && res.data.history.length > 0) {
+                        const latestMove = res.data.history[res.data.history.length - 1];
+                        if (latestMove.fen !== fen) {
+                            setFen(latestMove.fen);
+                            setHistory(res.data.history);
+                            setLastMove({ from: latestMove.from, to: latestMove.to });
+
+                            if (latestMove.m.includes('x')) playSound('capture');
+                            else if (latestMove.m.includes('+')) playSound('move-check');
+                            else playSound('move');
+                        }
+                    }
+                } catch (err) { console.error(err); }
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [gameId, fen, status, token, API_BASE, playSound]);
+
     return {
-        gameId, fen, selectedSquare, validMoves, lastMove, history, status, isDragging, viewIndex, isAlert, mousePos, dragOffset, hoverSquare,
-        setFen, setSelectedSquare, setValidMoves, setLastMove, setHistory, setStatus, setIsDragging, setViewIndex, setIsAlert, setMousePos, setDragOffset, setHoverSquare,
-        getSquareName, fetchGameState, startNewGame, handleResign, executeMove, token, API_BASE
+        gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves, 
+        lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging, 
+        viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset, 
+        hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign, 
+        executeMove, playSound, token, API_BASE
     };
 };
