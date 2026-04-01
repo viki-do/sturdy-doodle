@@ -408,8 +408,8 @@ const GameBoard = () => {
                                 position: 'fixed',
                                 left: mousePos.x - dragOffset.x,
                                 top: mousePos.y - dragOffset.y,
-                                width: '80px',
-                                height: '80px',
+                                width: '70px',
+                                height: '70px',
                                 x: '-50%', // Középre igazítás az egérhez képest
                                 y: '-50%',
                                 pointerEvents: 'none', // Hogy az egér "átlásson" rajta a mezőkre
