@@ -106,7 +106,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         
         if not board.is_game_over():
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.5)) # Rövidebb idő a gyorsabb válaszért
+            result = engine_proc.play(board, chess.engine.Limit(time=0.9)) # Rövidebb idő a gyorsabb válaszért
             
             m_from = chess.square_name(result.move.from_square)
             m_to = chess.square_name(result.move.to_square)

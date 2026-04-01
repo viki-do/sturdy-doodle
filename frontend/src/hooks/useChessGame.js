@@ -142,30 +142,39 @@ const handleResign = async () => {
 
     useEffect(() => {
         let interval;
-        if (gameId && status === "ongoing") {
-            interval = setInterval(async () => {
-                try {
-                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
+    if (gameId && status === "ongoing") {
+        interval = setInterval(async () => {
+            try {
+                const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
 
-                    if (res.data.history && res.data.history.length > 0) {
-                        const latestMove = res.data.history[res.data.history.length - 1];
-                        if (latestMove.fen !== fen) {
+                if (res.data.history && res.data.history.length > 0) {
+                    const latestMove = res.data.history[res.data.history.length - 1];
+                    
+                    // 1. A history-t MINDIG frissítjük a háttérben, hogy a MoveListPanel nőjön
+                    if (res.data.history.length !== history.length) {
+                        setHistory(res.data.history);
+
+                        // 2. CSAK AKKOR váltunk FEN-t és játszunk hangot, ha az "ÉLŐ" nézetben vagyunk (-1)
+                        if (viewIndex === -1 && latestMove.fen !== fen) {
                             setFen(latestMove.fen);
-                            setHistory(res.data.history);
                             setLastMove({ from: latestMove.from, to: latestMove.to });
 
+                            // Hang lejátszása az ellenfélnek
                             if (latestMove.m.includes('x')) playSound('capture');
                             else if (latestMove.m.includes('+')) playSound('move-check');
                             else playSound('move');
                         }
                     }
-                } catch (err) { console.error(err); }
-            }, 3000);
-        }
-        return () => clearInterval(interval);
-    }, [gameId, fen, status, token, API_BASE, playSound]);
+                }
+            } catch (err) {
+                console.error("Polling error:", err);
+            }
+        }, 3000);
+    }
+    return () => clearInterval(interval);
+    }, [gameId, fen, status, token, API_BASE, playSound, history.length]);
 
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves, 
