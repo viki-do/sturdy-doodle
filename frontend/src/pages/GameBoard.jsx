@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect,useCallback} from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Navbar from '../components/Navbar';
 import ChessBoardGrid from '../components/ChessBoardGrid';
@@ -20,39 +20,38 @@ const GameBoard = () => {
 
     // --- NAVIGATION ---
     
+    // --- NAVIGATION (useCallback-be csomagolva) ---
+    const goToMove = useCallback((index, isWhiteOnly = false) => {
+        setSelectedSquare(null); // Kijelölés törlése navigációkor
 
-const goToMove = (index, isWhiteOnly = false) => {
-    setSelectedSquare(null); // Kijelölés törlése navigációkor
-
-    // Ha az index -1, vagy elértük az utolsó lépést, váltsunk ÉLŐ módba
-    if (index === -1 || index >= history.length - 1) {
-        setViewIndex(-1);
-        const latest = history[history.length - 1];
-        if (latest) {
-            setFen(latest.fen);
-            setLastMove({ from: latest.from, to: latest.to });
+        // Ha az index -1, vagy elértük az utolsó lépést, váltsunk ÉLŐ módba
+        if (index === -1 || index >= history.length - 1) {
+            setViewIndex(-1);
+            const latest = history[history.length - 1];
+            if (latest) {
+                setFen(latest.fen);
+                setLastMove({ from: latest.from, to: latest.to });
+            }
+            return;
         }
-        return;
-    }
 
-    const move = history[index];
-    if (!move) return;
+        const move = history[index];
+        if (!move) return;
 
-    if (isWhiteOnly) {
-        const tempChess = new Chess(move.fen);
-        const undone = tempChess.undo();
-        if (undone) {
-            setFen(tempChess.fen());
-            setLastMove({ from: undone.from, to: undone.to });
-            setViewIndex(index + "_white");
+        if (isWhiteOnly) {
+            const tempChess = new Chess(move.fen);
+            const undone = tempChess.undo();
+            if (undone) {
+                setFen(tempChess.fen());
+                setLastMove({ from: undone.from, to: undone.to });
+                setViewIndex(index + "_white");
+            }
+        } else {
+            setFen(move.fen);
+            setLastMove({ from: move.from, to: move.to });
+            setViewIndex(index);
         }
-    } else {
-        setFen(move.fen);
-        setLastMove({ from: move.from, to: move.to });
-        setViewIndex(index);
-    }
-};
-
+    }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare]); 
     // --- MOUSE HANDLERS (Ez hiányzott a legutóbb!) ---
     const handleMouseDown = async (e, row, col) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -171,39 +170,32 @@ useEffect(() => {
 }, [isDragging, getSquareName, setMousePos, setHoverSquare]);
 
     // --- KEYBOARD NAVIGATION ---
-useEffect(() => {
-    const handleKeyDown = (e) => {
-        // Ha éppen ír a felhasználó (pl. egy chatboxba), ne navigáljon
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+// --- KEYBOARD NAVIGATION ---
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-        const latestIndex = history.length - 1;
+            const latestIndex = history.length - 1;
 
-        if (e.key === 'ArrowLeft') {
-            // Balra nyíl: Előző lépés
-            // Ha élő módban vagyunk (-1), akkor az utolsó lépésre ugrunk, egyébként eggyel vissza
-            const currentIdx = viewIndex === -1 ? latestIndex : parseInt(viewIndex);
-            if (currentIdx >= 0) {
-                goToMove(currentIdx - 1);
+            if (e.key === 'ArrowLeft') {
+                const currentIdx = viewIndex === -1 ? latestIndex : parseInt(viewIndex);
+                if (currentIdx >= 0) {
+                    goToMove(currentIdx - 1);
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (viewIndex === -1) return;
+                const currentIdx = parseInt(viewIndex);
+                if (currentIdx >= latestIndex - 1) {
+                    goToMove(-1);
+                } else {
+                    goToMove(currentIdx + 1);
+                }
             }
-        } else if (e.key === 'ArrowRight') {
-            // Jobbra nyíl: Következő lépés
-            if (viewIndex === -1) return; // Már az élő nézetben vagyunk
+        };
 
-            const currentIdx = parseInt(viewIndex);
-            // Ha az utolsó előtti lépésen vagyunk és jobbra nyomunk, akkor vissza az élőbe (-1)
-            if (currentIdx >= latestIndex - 1) {
-                goToMove(-1);
-            } else {
-                goToMove(currentIdx + 1);
-            }
-        }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    
-    // Takarítás, amikor a komponens megsemmisül
-    return () => window.removeEventListener('keydown', handleKeyDown);
-}, [viewIndex, history, goToMove]); // Fontos függőségek
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [viewIndex, history, goToMove]);
 
     const renderNotation = (text) => {
         if (!text || text === "start") return "";
@@ -224,25 +216,25 @@ useEffect(() => {
                     />
                     
                     <AnimatePresence>
-    {status !== "ongoing" && (
-        <motion.div 
-            initial={{ opacity: 0, scale: 0.5 }} 
-            animate={{ opacity: 1, scale: 1 }} 
-            // Itt a z-indexet emeld meg 1000-re vagy legalább 500-ra
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 p-10 rounded-xl z-[1000] text-center border border-[#454241] shadow-2xl"
-        >
-            <h1 className="text-[36px] mb-2.5 font-bold">
-                {status === "checkmate" ? "Checkmate" : "Game Over"}
-            </h1>
-            <button 
-                onClick={startNewGame} 
-                className="px-7.5 py-3 bg-[#81b64c] text-white rounded-sm text-[18px] font-bold hover:bg-[#a3d16a] transition-colors"
-            >
-                New Game
-            </button>
-        </motion.div>
-    )}
-</AnimatePresence>
+                    {status !== "ongoing" && (
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.5 }} 
+                            animate={{ opacity: 1, scale: 1 }} 
+                            // Itt a z-indexet emeld meg 1000-re vagy legalább 500-ra
+                            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 p-10 rounded-xl z-1000 text-center border border-[#454241] shadow-2xl"
+                        >
+                            <h1 className="text-[36px] mb-2.5 font-bold">
+                                {status === "checkmate" ? "Checkmate" : "Game Over"}
+                            </h1>
+                            <button 
+                                onClick={startNewGame} 
+                                className="px-7.5 py-3 bg-[#81b64c] text-white rounded-sm text-[18px] font-bold hover:bg-[#a3d16a] transition-colors"
+                            >
+                                New Game
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
                 </div>
 
                 <MoveListPanel 

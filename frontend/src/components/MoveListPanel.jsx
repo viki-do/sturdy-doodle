@@ -32,10 +32,10 @@ const MoveListPanel = ({
     });
 
     return (
-        <div className="w-105 h-[750px] bg-[#262421] flex flex-col shadow-2xl font-sans border border-[#312e2b] overflow-hidden">
+        <div className="w-105 h-187.5 bg-[#262421] flex flex-col shadow-2xl font-sans border border-chess-bg overflow-hidden">
             
             {/* Felső Navigáció */}
-            <div className="grid grid-cols-4 bg-[#21201d] border-b border-[#1b1a18]">
+            <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} hasX={!isOngoing} />
                 <TopTab icon="fa-plus" label="New Game" onClick={startNewGame} />
                 <TopTab icon="fa-th" label="Games" />
@@ -49,11 +49,11 @@ const MoveListPanel = ({
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar bg-[#2b2926]">
-                <div className="p-3 text-[12px] text-[#666] font-bold border-b border-[#312e2b]/30">Starting Position</div>
+                <div className="p-3 text-[12px] text-[#666] font-bold border-b border-chess-bg/30">Starting Position</div>
                 
                 <div className="flex flex-col">
                     {moveRows.map((row, i) => (
-                        <div key={i} className="flex h-12 border-b border-[#312e2b]/10">
+                        <div key={i} className="flex h-12 border-b border-chess-bg/10">
                             
                             {/* BAL OLDAL: Lépések (Ahogy régen volt) */}
                             <div className="flex flex-1 items-center">
@@ -77,7 +77,7 @@ const MoveListPanel = ({
                             </div>
 
                             {/* JOBB OLDAL: Idők (A kért designnal) */}
-                            <div className="w-20 flex flex-col justify-center border-l border-[#312e2b]/40 px-2 bg-[#21201d]/20">
+                            <div className="w-20 flex flex-col justify-center border-l border-chess-bg/40 px-2 bg-chess-panel-header/20">
                                 <div className="flex items-center justify-end gap-1.5 h-1/2">
                                     <span className="text-[10px] text-[#888] font-mono">0.0s</span>
                                     <div className="w-1 h-3 bg-white rounded-sm opacity-80"></div>
@@ -157,7 +157,7 @@ const TopTab = ({ icon, label, active, hasX, onClick }) => (
 const NavBtn = ({ icon, onClick, active }) => (
     <button 
         onClick={active ? onClick : null}
-        className={`flex-1 h-12 rounded bg-[#312e2b] flex justify-center items-center ${active ? 'text-[#bab9b8] hover:bg-[#454241] cursor-pointer' : 'opacity-10 cursor-not-allowed'}`}
+        className={`flex-1 h-12 rounded bg-chess-bg flex justify-center items-center ${active ? 'text-[#bab9b8] hover:bg-[#454241] cursor-pointer' : 'opacity-10 cursor-not-allowed'}`}
     >
         <i className={`fas ${icon} text-[16px]`}></i>
     </button>
