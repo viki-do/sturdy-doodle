@@ -74,48 +74,70 @@ export const useChessGame = () => {
         }
     }, [userId, token, API_BASE, playSound]);
 
-    const executeMove = async (from, to) => {
-        const chess = new Chess(fen);
-        const moveAttempt = chess.move({ from, to, promotion: 'q' });
+const executeMove = async (from, to) => {
+    const chess = new Chess(fen);
+    const moveAttempt = chess.move({ from, to, promotion: 'q' });
 
-        if (!moveAttempt) {
-            playSound('illegal');
-            setIsAlert(true);
-            setTimeout(() => setIsAlert(false), 400);
-            return;
-        }
+    if (!moveAttempt) {
+        playSound('illegal');
+        setIsAlert(true);
+        setTimeout(() => setIsAlert(false), 400);
+        return;
+    }
 
-        if (moveAttempt.captured) playSound('capture');
-        else playSound('move');
+    // --- JÁTÉKOS HANGJA ---
+    // Azonnal lejátsszuk a hangot a játékos lépésére
+    if (chess.isCheckmate()) {
+        playSound('checkmate');
+    } else if (chess.isCheck()) {
+        playSound('move-check'); // <--- EZ AZ, AMIT HIÁNYOLTÁL
+    } else if (moveAttempt.captured) {
+        playSound('capture');
+    } else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) {
+        playSound('castle');
+    } else {
+        playSound('move');
+    }
 
-        try {
-            const res = await axios.post(`${API_BASE}/move`,
-                { game_id: gameId, move: `${from}${to}` },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+    try {
+        const res = await axios.post(`${API_BASE}/move`,
+            { game_id: gameId, move: `${from}${to}` },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
 
-            setTimeout(() => {
-                setFen(res.data.new_fen);
-                const bot = res.data.bot_move;
-                if (bot && bot.from) {
-                    setLastMove({ from: bot.from, to: bot.to });
-                    if (res.data.is_checkmate) playSound('checkmate');
-                    else if (bot.is_check) playSound('move-check');
-                    else if (bot.is_capture) playSound('capture');
-                    else playSound('move');
+        // Várunk egy kicsit, amíg a bot "gondolkodik" és lép
+        setTimeout(() => {
+            setFen(res.data.new_fen);
+            const bot = res.data.bot_move;
+            
+            if (bot && bot.from) {
+                setLastMove({ from: bot.from, to: bot.to });
+                
+                // --- BOT HANGJA ---
+                if (res.data.is_checkmate) {
+                    playSound('game-end');
+                } else if (bot.is_check) {
+                    playSound('move-check'); // Ha a bot ad sakkot nekünk
+                } else if (bot.is_capture) {
+                    playSound('capture');
+                } else {
+                    playSound('move');
                 }
-                fetchGameState(gameId);
-            }, 500);
+            }
+            fetchGameState(gameId);
+        }, 500);
 
-        } catch (err) {
-            console.error(err);
-            playSound('illegal');
-        }
-        
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setIsDragging(false);
-    };
+    } catch (err) {
+        console.error(err);
+        // Hiba esetén (pl. hálózati hiba) ne maradjon ott a bábu vizuálisan
+        fetchGameState(gameId);
+    }
+    
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setIsDragging(false);
+};
+
 const handleResign = async () => {
         if (!window.confirm("Biztosan feladod a játszmát?")) return;
         

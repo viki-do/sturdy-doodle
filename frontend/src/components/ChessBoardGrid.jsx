@@ -8,7 +8,11 @@ const piecesMap = {
 };
 
 const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
-    const { fen, selectedSquare, lastMove, validMoves, isDragging, hoverSquare, mousePos, dragOffset, isAlert, status, viewIndex, getSquareName } = gameLogic;
+    const { 
+        fen, selectedSquare, lastMove, validMoves, isDragging, 
+        hoverSquare, mousePos, isAlert, status, 
+        viewIndex, getSquareName 
+    } = gameLogic;
 
     let whiteKingSquare = null;
     try {
@@ -27,6 +31,8 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     });
 
     const boardCells = [];
+    let draggedPieceData = null;
+
     for (let i = 0; i < 8; i++) {
         for (let j = 0; j < 8; j++) {
             const sqName = getSquareName(i, j);
@@ -36,22 +42,23 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
             const isLast = lastMove.from === sqName || lastMove.to === sqName;
             const isValid = validMoves.includes(sqName);
 
+            // Hover kiemelés
             let outlineStyle = 'none';
-            if (isDragging && selectedSquare) {
-                if (sqName === hoverSquare) {
-                    outlineStyle = sqName === selectedSquare ? '3px solid #E7EDBD' : (isDark ? '3px solid #CEDAC3' : '3px solid #F8F8EF');
-                }
+            if (isDragging && selectedSquare && sqName === hoverSquare) {
+                outlineStyle = sqName === selectedSquare ? '3px solid #E7EDBD' : (isDark ? '3px solid #CEDAC3' : '3px solid #F8F8EF');
             }
 
-            // --- SZÍNLOGIKA FRISSÍTÉSE ---
+            // Színlogika
             let currentBgColor = isDark ? 'bg-chess-dark' : 'bg-chess-light';
-            
             if (isAlert && sqName === whiteKingSquare) {
                 currentBgColor = isDark ? 'bg-[#DC2712]' : 'bg-[#FD1D19]';
-            } 
-            else if (isSelected || isLast) {
-                // A kért egyedi sárgás-zöldes színek
+            } else if (isSelected || isLast) {
                 currentBgColor = isDark ? 'bg-[#b9cb43]' : 'bg-[#f5f681]';
+            }
+
+            // Ha ezt a bábut húzzuk, elmentjük az adatait, de nem rajzoljuk ki a rácsba
+            if (isDragging && selectedSquare === sqName && piece) {
+                draggedPieceData = { piece, i, j };
             }
 
             boardCells.push(
@@ -59,21 +66,21 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                     key={sqName} 
                     onMouseDown={(e) => onMouseDown(e, i, j)} 
                     onMouseUp={() => onMouseUp(i, j)}
-                    className={`w-21.25 h-21.25 flex justify-center items-center relative select-none transition-colors duration-150 ${currentBgColor} ${isAlert && sqName === whiteKingSquare ? 'ring-4 ring-inset ring-red-600' : ''} ${piece && status === "ongoing" && viewIndex === -1 ? 'cursor-grab' : 'cursor-default'}`}
+                    className={`w-21.25 h-21.25 flex justify-center items-center relative select-none transition-colors duration-150 ${currentBgColor} ${piece && status === "ongoing" && viewIndex === -1 ? 'cursor-grab' : 'cursor-default'}`}
                     style={{ 
                         outline: outlineStyle, 
-                        outlineOffset: '-3px', 
-                        zIndex: selectedSquare === sqName ? 1000 : (sqName === hoverSquare ? 30 : 1) 
+                        outlineOffset: '-3px',
+                        zIndex: sqName === hoverSquare ? 30 : 1 
                     }}
                 >
-                    {/* --- SZÁMOK (Rank) - Dinamikus színnel --- */}
+                    {/* Számok */}
                     {j === 0 && (
                         <span className={`absolute top-0.5 left-1 text-[15px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {8 - i}
                         </span>
                     )}
 
-                    {/* --- BETŰK (File) - Dinamikus színnel --- */}
+                    {/* Betűk */}
                     {i === 7 && (
                         <span className={`absolute bottom-0.5 right-1 text-[15px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'][j]}
@@ -82,37 +89,48 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
 
                     {/* Érvényes lépés pötty */}
                     {isValid && viewIndex === -1 && !isDragging && <div className="w-6.5 h-6.5 rounded-full bg-black/15 absolute z-20" />}
-                    
-                    {piece && (
+
+                    {/* Csak akkor rajzoljuk ki ide a bábut, ha NEM ez van húzva éppen */}
+                    {piece && (!isDragging || selectedSquare !== sqName) && (
                         <motion.img
                             key={`piece-${sqName}-${piece}`}
-                            layoutId={isDragging && selectedSquare === sqName ? undefined : `piece-${sqName}`}
                             src={`/assets/pieces/${piecesMap[piece]}.png`}
-                            animate={isDragging && selectedSquare === sqName ? { scale: 1.15, filter: 'drop-shadow(0px 10px 10px rgba(0,0,0,0.4))' } : { scale: 1, filter: 'drop-shadow(0px 0px 0px rgba(0,0,0,0))' }}
-                            style={isDragging && selectedSquare === sqName ? { 
-                                position: 'fixed', 
-                                left: mousePos.x - dragOffset.x, 
-                                top: mousePos.y - dragOffset.y, 
-                                width: '70px', 
-                                height: '70px', 
-                                x: '-50%', 
-                                y: '-50%', 
-                                pointerEvents: 'none', 
-                                zIndex: 9999 
-                            } : { 
-                                width: '90%', 
-                                height: '90%', 
-                                zIndex: 40, 
-                                position: 'relative' 
-                            }}
-                            transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.2, duration: 0.06 }}
+                            draggable="false"
+                            className="w-[90%] h-[90%] relative z-40"
                         />
                     )}
                 </div>
             );
         }
     }
-    return <div id="chess-board" className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative">{boardCells}</div>;
+
+    return (
+        <div id="chess-board" className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative z-0">
+            {boardCells}
+
+            {/* A LEBEGŐ BÁBU: A rácson kívül rajzoljuk ki, ha van húzás */}
+            {isDragging && draggedPieceData && (
+                <motion.img
+                    src={`/assets/pieces/${piecesMap[draggedPieceData.piece]}.png`}
+                    draggable="false"
+                    style={{ 
+                        position: 'fixed', 
+                        left: mousePos.x, 
+                        top: mousePos.y, 
+                        width: '67px', 
+                        height: '67px', 
+                        x: '-50%', 
+                        y: '-50%', 
+                        pointerEvents: 'none', 
+                        zIndex: 99999, 
+                        filter: 'drop-shadow(0px 15px 25px rgba(0,0,0,0.5))',
+                        scale: 1.2
+                    }}
+                    transition={{ type: "just" }}
+                />
+            )}
+        </div>
+    );
 };
 
 export default ChessBoardGrid;

@@ -94,17 +94,34 @@ const goToMove = (index, isWhiteOnly = false) => {
     };
 
     const handleMouseUp = async (row, col) => {
-        if (!isDragging) return;
-        const target = getSquareName(row, col);
-        if (selectedSquare && target !== selectedSquare) {
-            if (validMoves.includes(target)) await gameLogic.executeMove(selectedSquare, target);
-            else { 
-                playSound('illegal');
-                setIsAlert(true); setTimeout(() => setIsAlert(false), 400);
-                setIsDragging(false); 
-            }
-        } else setIsDragging(false);
-    };
+    if (!isDragging) return;
+    
+    const target = getSquareName(row, col);
+    setIsDragging(false); // Azonnal állítsuk le a vizuális húzást
+
+    // 1. ESET: Saját magára ejtettük vissza (Meggondoltuk magunkat)
+    if (target === selectedSquare) {
+        setHoverSquare(null);
+        return;
+    }
+
+    // 2. ESET: Érvényes lépés mezőre ejtettük (Végrehajtás)
+    if (validMoves.includes(target)) {
+        await gameLogic.executeMove(selectedSquare, target);
+    } 
+    // 3. ESET: Érvénytelen mezőre ejtettük
+    else {
+        // Itt a titok: NEM játszunk hangot és NEM adunk riasztást.
+        // Egyszerűen csak nullázzuk a kijelöléseket.
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
+        
+        // Csak akkor adjunk hibaüzenetet/hangot, ha a felhasználó olyat akart ütni, amit nem szabad
+        // vagy ha kifejezetten "lépni" próbált egy nem szomszédos, de érvénytelen helyre.
+        // Ha ezt is el akarod hagyni, hagyd üresen ezt a részt.
+    }
+};
 
     // --- INITIALIZATION ---
     useEffect(() => {
@@ -127,6 +144,67 @@ const goToMove = (index, isWhiteOnly = false) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
+    // --- MOUSE MOVE TRACKING ---
+useEffect(() => {
+    const handleMouseMove = (e) => {
+        if (isDragging) {
+            // Frissítjük az egér pozícióját a Hook-ban
+            setMousePos({ x: e.clientX, y: e.clientY });
+
+            // Kiszámoljuk, melyik mező felett járunk éppen a keret kiemeléshez
+            const board = document.getElementById('chess-board')?.getBoundingClientRect();
+            if (board) {
+                const col = Math.floor((e.clientX - board.left) / (board.width / 8));
+                const row = Math.floor((e.clientY - board.top) / (board.height / 8));
+                
+                if (col >= 0 && col < 8 && row >= 0 && row < 8) {
+                    setHoverSquare(getSquareName(row, col));
+                } else {
+                    setHoverSquare(null);
+                }
+            }
+        }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+}, [isDragging, getSquareName, setMousePos, setHoverSquare]);
+
+    // --- KEYBOARD NAVIGATION ---
+useEffect(() => {
+    const handleKeyDown = (e) => {
+        // Ha éppen ír a felhasználó (pl. egy chatboxba), ne navigáljon
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        const latestIndex = history.length - 1;
+
+        if (e.key === 'ArrowLeft') {
+            // Balra nyíl: Előző lépés
+            // Ha élő módban vagyunk (-1), akkor az utolsó lépésre ugrunk, egyébként eggyel vissza
+            const currentIdx = viewIndex === -1 ? latestIndex : parseInt(viewIndex);
+            if (currentIdx >= 0) {
+                goToMove(currentIdx - 1);
+            }
+        } else if (e.key === 'ArrowRight') {
+            // Jobbra nyíl: Következő lépés
+            if (viewIndex === -1) return; // Már az élő nézetben vagyunk
+
+            const currentIdx = parseInt(viewIndex);
+            // Ha az utolsó előtti lépésen vagyunk és jobbra nyomunk, akkor vissza az élőbe (-1)
+            if (currentIdx >= latestIndex - 1) {
+                goToMove(-1);
+            } else {
+                goToMove(currentIdx + 1);
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    
+    // Takarítás, amikor a komponens megsemmisül
+    return () => window.removeEventListener('keydown', handleKeyDown);
+}, [viewIndex, history, goToMove]); // Fontos függőségek
+
     const renderNotation = (text) => {
         if (!text || text === "start") return "";
         const icons = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘' };
@@ -146,13 +224,25 @@ const goToMove = (index, isWhiteOnly = false) => {
                     />
                     
                     <AnimatePresence>
-                        {status !== "ongoing" && (
-                            <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 p-10 rounded-xl z-100 text-center border border-[#454241]">
-                                <h1 className="text-[36px] mb-2.5 font-bold">{status === "checkmate" ? "Checkmate" : "Game Over"}</h1>
-                                <button onClick={startNewGame} className="px-7.5 py-3 bg-[#81b64c] text-white rounded-sm text-[18px] font-bold hover:bg-[#a3d16a] transition-colors">New Game</button>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+    {status !== "ongoing" && (
+        <motion.div 
+            initial={{ opacity: 0, scale: 0.5 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            // Itt a z-indexet emeld meg 1000-re vagy legalább 500-ra
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 p-10 rounded-xl z-[1000] text-center border border-[#454241] shadow-2xl"
+        >
+            <h1 className="text-[36px] mb-2.5 font-bold">
+                {status === "checkmate" ? "Checkmate" : "Game Over"}
+            </h1>
+            <button 
+                onClick={startNewGame} 
+                className="px-7.5 py-3 bg-[#81b64c] text-white rounded-sm text-[18px] font-bold hover:bg-[#a3d16a] transition-colors"
+            >
+                New Game
+            </button>
+        </motion.div>
+    )}
+</AnimatePresence>
                 </div>
 
                 <MoveListPanel 
