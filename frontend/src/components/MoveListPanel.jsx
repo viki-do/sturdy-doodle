@@ -1,35 +1,16 @@
-import React from 'react';
-
-const MoveListPanel = ({ 
-    history, 
-    viewIndex, 
-    status, 
-    goToMove, 
-    handleResign, 
-    renderNotation,
-    startNewGame 
-}) => {
+const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, renderNotation, startNewGame }) => {
     const isOngoing = status === "ongoing";
-    const latestIndex = history.length - 1;
-    const isAtLatest = viewIndex === -1 || viewIndex === latestIndex;
 
-    const formatTime = (seconds) => {
-        if (seconds === undefined || seconds === null) return "0.0s";
-        return `${seconds.toFixed(1)}s`;
-    };
-
-    // --- LOGIKA: A history[i].m felbontása fehér és fekete lépésre ---
-    // A te backend-ed a notation-t így küldi: "e4 e5" vagy "Nf3 Nc6"
-    const moveRows = history.filter(m => m.m !== "start").map((item, index) => {
-        const parts = item.m.split(' ');
-        return {
-            moveNumber: index + 1,
-            white: parts[0],
-            black: parts[1] || null,
-            fullData: item,
-            originalIndex: history.findIndex(h => h.num === item.num)
-        };
-    });
+    // --- ÚJ LOGIKA: Fél-lépések párosítása ---
+    const movesOnly = history.filter(m => m.m !== "start");
+    const rows = [];
+    for (let i = 0; i < movesOnly.length; i += 2) {
+        rows.push({
+            moveNumber: Math.floor(i / 2) + 1,
+            white: movesOnly[i],           
+            black: movesOnly[i + 1] || null 
+        });
+    }
 
     return (
         <div className="w-105 h-187.5 bg-[#262421] flex flex-col shadow-2xl font-sans border border-chess-bg overflow-hidden">
@@ -52,41 +33,46 @@ const MoveListPanel = ({
                 <div className="p-3 text-[12px] text-[#666] font-bold border-b border-chess-bg/30">Starting Position</div>
                 
                 <div className="flex flex-col">
-                    {moveRows.map((row, i) => (
+                    {rows.map((row, i) => (
                         <div key={i} className="flex h-12 border-b border-chess-bg/10">
+                            <div className="w-10 flex items-center justify-center text-[#666] text-[12px] font-semibold bg-chess-panel-header/50">
+                                {row.moveNumber}.
+                            </div>
                             
-                            {/* BAL OLDAL: Lépések (Ahogy régen volt) */}
-                            <div className="flex flex-1 items-center">
-                                <div className="w-10 text-center text-[#666] text-[12px] font-semibold">{row.moveNumber}.</div>
-                                
-                                {/* Fehér lépés */}
-                                <div 
-                                    onClick={() => goToMove(row.originalIndex)}
-                                    className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${viewIndex === row.originalIndex ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
-                                >
-                                    {renderNotation(row.white)}
-                                </div>
-
-                                {/* Fekete lépés */}
-                                <div 
-                                    onClick={() => goToMove(row.originalIndex)}
-                                    className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${viewIndex === row.originalIndex ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
-                                >
-                                    {row.black ? renderNotation(row.black) : ""}
-                                </div>
+                            {/* FEHÉR LÉPÉS - Külön kattintható */}
+                            <div 
+                                onClick={() => goToMove(history.findIndex(h => h.num === row.white.num))}
+                                className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${viewIndex === history.findIndex(h => h.num === row.white.num) ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
+                            >
+                                {renderNotation(row.white.m)}
                             </div>
 
-                            {/* JOBB OLDAL: Idők (A kért designnal) */}
+                            {/* FEKETE LÉPÉS - Külön kattintható */}
+                            <div 
+                                onClick={() => row.black && goToMove(history.findIndex(h => h.num === row.black.num))}
+                                className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${row.black && viewIndex === history.findIndex(h => h.num === row.black.num) ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
+                            >
+                                {row.black ? renderNotation(row.black.m) : ""}
+                            </div>
+
+                            {/* Idő kijelzés (design megőrzése) */}
                             <div className="w-20 flex flex-col justify-center border-l border-chess-bg/40 px-2 bg-chess-panel-header/20">
-                                <div className="flex items-center justify-end gap-1.5 h-1/2">
-                                    <span className="text-[10px] text-[#888] font-mono">0.0s</span>
-                                    <div className="w-1 h-3 bg-white rounded-sm opacity-80"></div>
-                                </div>
-                                <div className="flex items-center justify-end gap-1.5 h-1/2">
-                                    <span className="text-[10px] text-[#666] font-mono">{row.black ? "0.0s" : ""}</span>
-                                    <div className={`w-1 h-3 bg-[#666] rounded-sm ${row.black ? 'opacity-50' : 'opacity-0'}`}></div>
-                                </div>
+                            {/* FEHÉR IDŐ */}
+                            <div className="flex items-center justify-end gap-1.5 h-1/2">
+                                <span className="text-[10px] text-[#888] font-mono">
+                                    {row.white.t > 0 ? `${row.white.t}s` : "0.1s"} 
+                                </span>
+                                <div className="w-1 h-3 bg-white rounded-sm opacity-80"></div>
                             </div>
+                            
+                            {/* FEKETE IDŐ (Stockfish) */}
+                            <div className="flex items-center justify-end gap-1.5 h-1/2">
+                                <span className="text-[10px] text-[#666] font-mono">
+                                    {row.black ? `${row.black.t}s` : ""}
+                                </span>
+                                <div className={`w-1 h-3 bg-[#666] rounded-sm ${row.black ? 'opacity-50' : 'opacity-0'}`}></div>
+                            </div>
+                        </div>
                         </div>
                     ))}
                 </div>

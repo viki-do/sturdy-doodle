@@ -41,6 +41,7 @@ class Game(Base):
     pgn = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
+
 class Move(Base):
     __tablename__ = "moves"
     id = Column(Integer, primary_key=True, index=True)
@@ -48,3 +49,5 @@ class Move(Base):
     move_number = Column(Integer, nullable=False)
     notation = Column(String(20), nullable=False)
     fen_before = Column(Text, nullable=False)
+    # ÚJ MEZŐ: A lépés pontos időpontja
+    created_at = Column(DateTime, server_default=func.now())

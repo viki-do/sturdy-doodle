@@ -18,40 +18,68 @@ const GameBoard = () => {
         setDragOffset, setMousePos
     } = gameLogic;
 
-    // --- NAVIGATION ---
+   const playNavigationSound = useCallback((notation) => {
+    if (!notation || notation === "start") return;
+
+    // Ha a notation több lépést tartalmazna, az utolsót nézzük
+    const moveStr = notation.split(' ').pop();
+
+    if (moveStr.includes('#')) {
+        playSound('checkmate');
+    } else if (moveStr.includes('+')) {
+        playSound('move-check');
+    } else if (moveStr.includes('O-O')) {
+        playSound('castle');
+    } else if (moveStr.includes('x')) {
+        playSound('capture');
+    } else {
+        playSound('move');
+    }
+}, [playSound]);
     
     // --- NAVIGATION (useCallback-be csomagolva) ---
+   
     const goToMove = useCallback((index, isWhiteOnly = false) => {
-        setSelectedSquare(null); // Kijelölés törlése navigációkor
+    setSelectedSquare(null); // Kijelölés törlése navigációkor
 
-        // Ha az index -1, vagy elértük az utolsó lépést, váltsunk ÉLŐ módba
-        if (index === -1 || index >= history.length - 1) {
-            setViewIndex(-1);
-            const latest = history[history.length - 1];
-            if (latest) {
-                setFen(latest.fen);
-                setLastMove({ from: latest.from, to: latest.to });
-            }
-            return;
+    // --- ÉLŐ MÓD (-1 vagy utolsó lépés) ---
+    if (index === -1 || index >= history.length - 1) {
+        const isBackFromPast = viewIndex !== -1; // Figyeljük, hogy elemzésből jövünk-e vissza
+        setViewIndex(-1);
+        
+        const latest = history[history.length - 1];
+        if (latest) {
+            setFen(latest.fen);
+            setLastMove({ from: latest.from, to: latest.to });
+            
+            // Ha a múltból ugrunk az élő állásra, játsszuk le a hangot
+            if (isBackFromPast) playNavigationSound(latest.m);
         }
+        return;
+    }
 
-        const move = history[index];
-        if (!move) return;
+    // --- MÚLTBELI LÉPÉSEK ---
+    const move = history[index];
+    if (!move) return;
 
-        if (isWhiteOnly) {
-            const tempChess = new Chess(move.fen);
-            const undone = tempChess.undo();
-            if (undone) {
-                setFen(tempChess.fen());
-                setLastMove({ from: undone.from, to: undone.to });
-                setViewIndex(index + "_white");
-            }
-        } else {
-            setFen(move.fen);
-            setLastMove({ from: move.from, to: move.to });
-            setViewIndex(index);
+    // Hang lejátszása a kiválasztott lépéshez
+    playNavigationSound(move.m);
+
+    if (isWhiteOnly) {
+        const tempChess = new Chess(move.fen);
+        const undone = tempChess.undo();
+        if (undone) {
+            setFen(tempChess.fen());
+            setLastMove({ from: undone.from, to: undone.to });
+            setViewIndex(index + "_white");
         }
-    }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare]); 
+    } else {
+        setFen(move.fen);
+        setLastMove({ from: move.from, to: move.to });
+        setViewIndex(index);
+    }
+}, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, viewIndex, playNavigationSound]);
+
     // --- MOUSE HANDLERS (Ez hiányzott a legutóbb!) ---
     const handleMouseDown = async (e, row, col) => {
         const rect = e.currentTarget.getBoundingClientRect();

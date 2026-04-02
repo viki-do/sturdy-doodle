@@ -8,6 +8,7 @@ import models
 from database import SessionLocal
 # Importáljuk az auth segédfüggvényt
 from .auth import get_current_user_id
+import time
 
 router = APIRouter(tags=["Chess Game"])
 
@@ -89,87 +90,120 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
     move_uci = data.get("move")
     
     try:
-        # 1. Játékos lépése
+        # --- 1. JÁTÉKOS LÉPÉSE ---
         user_move = chess.Move.from_uci(move_uci)
         user_move_san = board.san(user_move)
-        
-        # Ellenőrizzük, hogy a játékos ütött-e
         user_is_capture = board.is_capture(user_move)
         
         board.push(user_move)
         user_is_check = board.is_check()
         
-        # 2. Bot válasza (Stockfish)
+        # MENTÉS: Játékos lépése (külön sor!)
+        user_move_record = models.Move(
+            game_id=game_uuid, 
+            move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+            notation=user_move_san, 
+            fen_before=board.fen()
+        )
+        db.add(user_move_record)
+        db.commit() # <--- Azonnal commitoljuk, hogy a frontend lássa!
+
+        # --- 2. BOT VÁLASZA ---
         stock_san, m_from, m_to = "", "", ""
         bot_is_capture = False
         bot_is_check = False
         
         if not board.is_game_over():
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.9)) # Rövidebb idő a gyorsabb válaszért
+            result = engine_proc.play(board, chess.engine.Limit(time=0.5))
             
             m_from = chess.square_name(result.move.from_square)
             m_to = chess.square_name(result.move.to_square)
             stock_san = board.san(result.move)
-            bot_is_capture = board.is_capture(result.move) # Bot ütött-e?
+            bot_is_capture = board.is_capture(result.move)
             
             board.push(result.move)
-            bot_is_check = board.is_check() # Bot sakkot adott-e?
+            bot_is_check = board.is_check()
             engine_proc.quit()
-        
-        # Mentés
-        new_move = models.Move(
-            game_id=game_uuid, 
-            move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
-            notation=f"{user_move_san} {stock_san}".strip(), 
-            fen_before=board.fen()
-        )
-        db.add(new_move)
-        db.commit()
-        
-        # Visszaküldünk minden infót a hangokhoz
+
+            # MENTÉS: Bot lépése (külön sor!)
+            bot_move_record = models.Move(
+                game_id=game_uuid, 
+                move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+                notation=stock_san, 
+                fen_before=board.fen()
+            )
+            db.add(bot_move_record)
+            db.commit()
+
         return {
             "new_fen": board.fen(),
             "is_checkmate": board.is_checkmate(),
-            "user_move": {
-                "is_capture": user_is_capture,
-                "is_check": user_is_check
-            },
+            "user_move": {"is_capture": user_is_capture, "is_check": user_is_check},
             "bot_move": {
-                "from": m_from,
-                "to": m_to,
-                "is_capture": bot_is_capture,
-                "is_check": bot_is_check
+                "from": m_from, "to": m_to, 
+                "is_capture": bot_is_capture, "is_check": bot_is_check
             }
         }
     except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail="Lépési hiba")
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
     try:
         game_uuid = uuid.UUID(game_id)
         moves = db.query(models.Move).filter(models.Move.game_id == game_uuid).order_by(models.Move.move_number.asc()).all()
+        
         history_data = []
         board = chess.Board()
+        
         if not moves:
-            return {"history": [{"num": 0, "m": "start", "fen": board.fen(), "from": None, "to": None}]}
-        for m in moves:
+            return {"history": [{"num": 0, "m": "start", "fen": board.fen(), "from": None, "to": None, "t": 0}]}
+            
+        for i, m in enumerate(moves):
+            # 1. Időkülönbség számítása
+            duration = 0
+            if i > 0 and m.created_at and moves[i-1].created_at:
+                diff = m.created_at - moves[i-1].created_at
+                duration = diff.total_seconds()
+            
+            # 2. Kezdőpozíció kezelése
             if m.notation == "start":
-                history_data.append({"num": 0, "m": "start", "fen": m.fen_before, "from": None, "to": None})
+                history_data.append({
+                    "num": 0, 
+                    "m": "start", 
+                    "fen": m.fen_before, 
+                    "from": None, 
+                    "to": None, 
+                    "t": 0
+                })
                 continue
+
+            # 3. Lépés feldolgozása (koordináták kinyerése)
             try:
-                parts = m.notation.split()
-                f, t = None, None
-                for p in parts:
-                    mv = board.push_san(p)
-                    f, t = chess.square_name(mv.from_square), chess.square_name(mv.to_square)
-                history_data.append({"num": m.move_number, "m": m.notation, "fen": board.fen(), "from": f, "to": t})
-            except: continue
+                # Mivel most már fél-lépésenként (e4, majd e5 külön) tároljuk:
+                mv = board.push_san(m.notation)
+                f_sq = chess.square_name(mv.from_square)
+                t_sq = chess.square_name(mv.to_square)
+                
+                history_data.append({
+                    "num": m.move_number, 
+                    "m": m.notation, 
+                    "fen": board.fen(), 
+                    "from": f_sq, 
+                    "to": t_sq,
+                    "t": round(duration, 1) 
+                })
+            except Exception as e:
+                print(f"Hiba a lépés feldolgozásánál ({m.notation}): {e}")
+                continue
+                
         return {"history": history_data}
-    except:
-        return {"history": [{"num": 0, "m": "start", "fen": chess.STARTING_FEN, "from": None, "to": None}]}
+        
+    except Exception as e:
+        print(f"Globális hiba a history lekérdezésnél: {e}")
+        return {"history": [{"num": 0, "m": "start", "fen": chess.STARTING_FEN, "from": None, "to": None, "t": 0}]}
 
 @router.get("/get-active-game")
 def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
@@ -195,3 +229,35 @@ def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/move")
+def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    # ... (board és user_move kódod változatlan)
+    
+    # Megkeressük az utolsó lépést, hogy tudjuk, mihez képest mérjük az időt
+    last_move_record = db.query(models.Move).filter(models.Move.game_id == game_uuid).order_by(models.Move.move_number.desc()).first()
+    
+    # 1. JÁTÉKOS LÉPÉSE mentése
+    user_move_record = models.Move(
+        game_id=game_uuid, 
+        move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+        notation=user_move_san, 
+        fen_before=board.fen()
+    )
+    db.add(user_move_record)
+    db.commit()
+
+    # 2. BOT LÉPÉSE (Mérjük a stockfish gondolkodási idejét is)
+    if not board.is_game_over():
+        start_bot_time = time.time() # Bot kezd
+        # ... (stockfish engine hívásod változatlan) ...
+        bot_thinking_time = time.time() - start_bot_time 
+
+        bot_move_record = models.Move(
+            game_id=game_uuid, 
+            move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+            notation=stock_san, 
+            fen_before=board.fen()
+        )
+        db.add(bot_move_record)
+        db.commit()
