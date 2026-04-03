@@ -26,13 +26,6 @@ export const useChessGame = () => {
         return `${filesArr[col]}${8 - row}`;
     };
 
-    const playSound = useCallback((soundName) => {
-        const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
-        audio.play().catch(err => {
-            console.log(`Audio play blocked or not found: ${soundName}`);
-        });
-    }, []);
-
     const fetchGameState = useCallback(async (id) => {
         if (!id || id === "null" || !token) return;
         try {
@@ -68,36 +61,25 @@ export const useChessGame = () => {
             setHistory([]);
             setViewIndex(-1);
             setStatus("ongoing");
-            playSound('game-start'); 
         } catch (err) { 
             console.error("Hiba az új játék indításakor:", err);
         }
-    }, [userId, token, API_BASE, playSound]);
+    }, [userId, token, API_BASE]);
 
-const executeMove = async (from, to) => {
+    const executeMove = async (from, to) => {
     const chess = new Chess(fen);
     const moveAttempt = chess.move({ from, to, promotion: 'q' });
 
-    if (!moveAttempt) {
-        playSound('illegal');
-        setIsAlert(true);
-        setTimeout(() => setIsAlert(false), 400);
-        return;
-    }
+    if (!moveAttempt) return;
 
-    // --- JÁTÉKOS HANGJA ---
-    // Azonnal lejátsszuk a hangot a játékos lépésére
-    if (chess.isCheckmate()) {
-        playSound('checkmate');
-    } else if (chess.isCheck()) {
-        playSound('move-check'); // <--- EZ AZ, AMIT HIÁNYOLTÁL
-    } else if (moveAttempt.captured) {
-        playSound('capture');
-    } else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) {
-        playSound('castle');
-    } else {
-        playSound('move');
-    }
+    // 1. Azonnali állapotfrissítés (ez indítja a 0.2s-os animációt)
+    setFen(chess.fen());
+    setLastMove({ from, to });
+    
+    // 2. UI tisztítás
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setIsDragging(false);
 
     try {
         const res = await axios.post(`${API_BASE}/move`,
@@ -105,54 +87,35 @@ const executeMove = async (from, to) => {
             { headers: { Authorization: `Bearer ${token}` } }
         );
 
-        // Várunk egy kicsit, amíg a bot "gondolkodik" és lép
+        // 3. Bot válasza (0.4s múlva, hogy ne zavarja a te csúszásodat)
         setTimeout(() => {
-            setFen(res.data.new_fen);
-            const bot = res.data.bot_move;
-            
-            if (bot && bot.from) {
-                setLastMove({ from: bot.from, to: bot.to });
-                
-                // --- BOT HANGJA ---
-                if (res.data.is_checkmate) {
-                    playSound('game-end');
-                } else if (bot.is_check) {
-                    playSound('move-check'); // Ha a bot ad sakkot nekünk
-                } else if (bot.is_capture) {
-                    playSound('capture');
-                } else {
-                    playSound('move');
-                }
+            if (res.data.bot_move && res.data.bot_move.from) {
+                setFen(res.data.new_fen);
+                setLastMove({ from: res.data.bot_move.from, to: res.data.bot_move.to });
             }
             fetchGameState(gameId);
-        }, 500);
+        }, 400);
 
     } catch (err) {
-        console.error(err);
-        // Hiba esetén (pl. hálózati hiba) ne maradjon ott a bábu vizuálisan
         fetchGameState(gameId);
     }
-    
-    setSelectedSquare(null);
-    setValidMoves([]);
-    setIsDragging(false);
 };
 
-const handleResign = async () => {
+    const handleResign = async () => {
         if (!window.confirm("Biztosan feladod a játszmát?")) return;
         
         const currentId = gameId;
-        
-        // 1. Hang lejátszása azonnal
-        playSound('game-end'); 
-        
-        // 2. Állapotok frissítése
         localStorage.removeItem('chessGameId');
         setGameId(null);
         setStatus("resigned");
         
+        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setLastMove({ from: null, to: null });
+        setHistory([]);
+        setSelectedSquare(null);
+        setValidMoves([]);
+        
         try {
-            // 3. Szerver értesítése
             await axios.post(`${API_BASE}/resign-game`, 
                 { game_id: currentId }, 
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -164,45 +127,41 @@ const handleResign = async () => {
 
     useEffect(() => {
         let interval;
-    if (gameId && status === "ongoing") {
-        interval = setInterval(async () => {
-            try {
-                const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+        if (gameId && status === "ongoing") {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
 
-                if (res.data.history && res.data.history.length > 0) {
-                    const latestMove = res.data.history[res.data.history.length - 1];
-                    
-                    // 1. A history-t MINDIG frissítjük a háttérben, hogy a MoveListPanel nőjön
-                    if (res.data.history.length !== history.length) {
-                        setHistory(res.data.history);
+                    if (res.data.history && res.data.history.length > 0) {
+                        if (res.data.history.length !== history.length) {
+                            const newHistory = res.data.history;
+                            const latestMove = newHistory[newHistory.length - 1];
 
-                        // 2. CSAK AKKOR váltunk FEN-t és játszunk hangot, ha az "ÉLŐ" nézetben vagyunk (-1)
-                        if (viewIndex === -1 && latestMove.fen !== fen) {
-                            setFen(latestMove.fen);
-                            setLastMove({ from: latestMove.from, to: latestMove.to });
+                            setHistory(newHistory);
 
-                            // Hang lejátszása az ellenfélnek
-                            if (latestMove.m.includes('x')) playSound('capture');
-                            else if (latestMove.m.includes('+')) playSound('move-check');
-                            else playSound('move');
+                            if (newHistory.length % 2 === 0) {
+                                if (latestMove.fen !== fen) {
+                                    setFen(latestMove.fen);
+                                    setLastMove({ from: latestMove.from, to: latestMove.to });
+                                }
+                            }
                         }
                     }
+                } catch (err) {
+                    console.error("Polling error:", err);
                 }
-            } catch (err) {
-                console.error("Polling error:", err);
-            }
-        }, 3000);
-    }
-    return () => clearInterval(interval);
-    }, [gameId, fen, status, token, API_BASE, playSound, history.length]);
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [gameId, fen, status, token, API_BASE, history.length, viewIndex]);
 
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves, 
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging, 
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset, 
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign, 
-        executeMove, playSound, token, API_BASE
+        executeMove, token, API_BASE
     };
 };

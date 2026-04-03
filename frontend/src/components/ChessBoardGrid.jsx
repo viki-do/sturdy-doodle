@@ -1,5 +1,6 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+// JAVÍTÁS: AnimatePresence hozzáadva az importhoz
+import { motion, AnimatePresence } from 'framer-motion';
 import { Chess } from 'chess.js';
 
 const piecesMap = {
@@ -56,7 +57,7 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                 currentBgColor = isDark ? 'bg-[#b9cb43]' : 'bg-[#f5f681]';
             }
 
-            // Ha ezt a bábut húzzuk, elmentjük az adatait, de nem rajzoljuk ki a rácsba
+            // Ha ezt a bábut húzzuk, elmentjük az adatait
             if (isDragging && selectedSquare === sqName && piece) {
                 draggedPieceData = { piece, i, j };
             }
@@ -87,18 +88,42 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         </span>
                     )}
 
-                    {/* Érvényes lépés pötty */}
-                    {isValid && viewIndex === -1 && !isDragging && <div className="w-6.5 h-6.5 rounded-full bg-black/15 absolute z-20" />}
-
-                    {/* Csak akkor rajzoljuk ki ide a bábut, ha NEM ez van húzva éppen */}
-                    {piece && (!isDragging || selectedSquare !== sqName) && (
-                        <motion.img
-                            key={`piece-${sqName}-${piece}`}
-                            src={`/assets/pieces/${piecesMap[piece]}.png`}
-                            draggable="false"
-                            className="w-[90%] h-[90%] relative z-40"
-                        />
+                    {/* Érvényes lépés jelzése (Pötty vagy Kör) */}
+                    {isValid && viewIndex === -1 && (
+                        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                            {piece ? (
+                                /* ÜTÉS: Nagy üres kör a bábu körül */
+                                <div className="w-[90%] h-[90%] border-[7px] border-black/15 rounded-full" />
+                            ) : (
+                                /* SIMA LÉPÉS: Kis teli pötty középen */
+                                <div className="w-6.5 h-6.5 rounded-full bg-black/15" />
+                            )}
+                        </div>
                     )}
+
+                    {/* Bábuk renderelése animációval */}
+                    {/* Bábuk renderelése a ciklusban */}
+{piece && (!isDragging || selectedSquare !== sqName) && (
+    <motion.img
+        // JAVÍTÁS: A layoutId legyen FIXEN a mező neve. 
+        // Így a React nem akarja újratölteni a képet, csak animálja a változást.
+        layout
+        layoutId={`sq-${sqName}`} 
+        key={`piece-${sqName}-${piece}`} 
+        src={`/assets/pieces/${piecesMap[piece]}.png`}
+        draggable="false"
+        className="w-[90%] h-[90%] relative z-40"
+        
+        // --- HAJSZÁLPONTOS 0.20 MÁSODPERC ---
+        initial={false}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{
+            type: "tween",
+            ease: "easeOut",
+            duration: 0.20 
+        }}
+    />
+)}
                 </div>
             );
         }
@@ -108,27 +133,31 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
         <div id="chess-board" className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative z-0">
             {boardCells}
 
-            {/* A LEBEGŐ BÁBU: A rácson kívül rajzoljuk ki, ha van húzás */}
-            {isDragging && draggedPieceData && (
-                <motion.img
-                    src={`/assets/pieces/${piecesMap[draggedPieceData.piece]}.png`}
-                    draggable="false"
-                    style={{ 
-                        position: 'fixed', 
-                        left: mousePos.x, 
-                        top: mousePos.y, 
-                        width: '67px', 
-                        height: '67px', 
-                        x: '-50%', 
-                        y: '-50%', 
-                        pointerEvents: 'none', 
-                        zIndex: 99999, 
-                        filter: 'drop-shadow(0px 15px 25px rgba(0,0,0,0.5))',
-                        scale: 1.2
-                    }}
-                    transition={{ type: "just" }}
-                />
-            )}
+            <AnimatePresence>
+                {isDragging && draggedPieceData && (
+                    <motion.img
+                        key="dragging-piece"
+                        src={`/assets/pieces/${piecesMap[draggedPieceData.piece]}.png`}
+                        draggable="false"
+                        style={{ 
+                            position: 'fixed', 
+                            left: mousePos.x, 
+                            top: mousePos.y, 
+                            width: '72px', 
+                            height: '72px', 
+                            x: '-50%', 
+                            y: '-50%', 
+                            pointerEvents: 'none', 
+                            zIndex: 99999, 
+                            filter: 'drop-shadow(0px 10px 20px rgba(0,0,0,0.4))'
+                        }}
+                        initial={false}
+                        animate={{ scale: 1.1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.1 }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 };

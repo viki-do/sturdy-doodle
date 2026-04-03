@@ -1,8 +1,8 @@
-import React, { useEffect,useCallback} from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import Navbar from '../components/Navbar';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import MoveListPanel from '../components/MoveListPanel';
+import PlaySelectionPanel from '../components/PlaySelectionPanel';
 import { useChessGame } from '../hooks/useChessGame';
 import axios from 'axios';
 import { Chess } from 'chess.js';
@@ -14,76 +14,47 @@ const GameBoard = () => {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
         token, gameId, setGameId, setFen, setLastMove, setViewIndex, 
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare, 
-        setValidMoves, API_BASE, playSound, setIsAlert, selectedSquare, validMoves, isDragging,
+        setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos
     } = gameLogic;
 
-   const playNavigationSound = useCallback((notation) => {
-    if (!notation || notation === "start") return;
+    const isGameActive = !!gameId && gameId !== "null";
 
-    // Ha a notation több lépést tartalmazna, az utolsót nézzük
-    const moveStr = notation.split(' ').pop();
-
-    if (moveStr.includes('#')) {
-        playSound('checkmate');
-    } else if (moveStr.includes('+')) {
-        playSound('move-check');
-    } else if (moveStr.includes('O-O')) {
-        playSound('castle');
-    } else if (moveStr.includes('x')) {
-        playSound('capture');
-    } else {
-        playSound('move');
-    }
-}, [playSound]);
-    
-    // --- NAVIGATION (useCallback-be csomagolva) ---
-   
     const goToMove = useCallback((index, isWhiteOnly = false) => {
-    setSelectedSquare(null); // Kijelölés törlése navigációkor
-
-    // --- ÉLŐ MÓD (-1 vagy utolsó lépés) ---
-    if (index === -1 || index >= history.length - 1) {
-        const isBackFromPast = viewIndex !== -1; // Figyeljük, hogy elemzésből jövünk-e vissza
-        setViewIndex(-1);
+        setSelectedSquare(null);
+        if (index === -1 || index >= history.length - 1) {
+            setViewIndex(-1);
+            const latest = history[history.length - 1];
+            if (latest) {
+                setFen(latest.fen);
+                setLastMove({ from: latest.from, to: latest.to });
+            }
+            return;
+        }
+        const move = history[index];
+        if (!move) return;
         
-        const latest = history[history.length - 1];
-        if (latest) {
-            setFen(latest.fen);
-            setLastMove({ from: latest.from, to: latest.to });
-            
-            // Ha a múltból ugrunk az élő állásra, játsszuk le a hangot
-            if (isBackFromPast) playNavigationSound(latest.m);
+        if (isWhiteOnly) {
+            const tempChess = new Chess(move.fen);
+            const undone = tempChess.undo();
+            if (undone) {
+                setFen(tempChess.fen());
+                setLastMove({ from: undone.from, to: undone.to });
+                setViewIndex(index + "_white");
+            }
+        } else {
+            setFen(move.fen);
+            setLastMove({ from: move.from, to: move.to });
+            setViewIndex(index);
         }
-        return;
-    }
+    }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare]);
 
-    // --- MÚLTBELI LÉPÉSEK ---
-    const move = history[index];
-    if (!move) return;
-
-    // Hang lejátszása a kiválasztott lépéshez
-    playNavigationSound(move.m);
-
-    if (isWhiteOnly) {
-        const tempChess = new Chess(move.fen);
-        const undone = tempChess.undo();
-        if (undone) {
-            setFen(tempChess.fen());
-            setLastMove({ from: undone.from, to: undone.to });
-            setViewIndex(index + "_white");
-        }
-    } else {
-        setFen(move.fen);
-        setLastMove({ from: move.from, to: move.to });
-        setViewIndex(index);
-    }
-}, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, viewIndex, playNavigationSound]);
-
-    // --- MOUSE HANDLERS (Ez hiányzott a legutóbb!) ---
     const handleMouseDown = async (e, row, col) => {
         const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
+        setDragOffset({
+            x: e.clientX - (rect.left + rect.width / 2),
+            y: e.clientY - (rect.top + rect.height / 2)
+        });
         setMousePos({ x: e.clientX, y: e.clientY });
 
         if (!gameId || gameId === "null" || viewIndex !== -1) return;
@@ -91,66 +62,72 @@ const GameBoard = () => {
 
         const pieces = fen.split(' ')[0].split('/').map(r => {
             const line = [];
-            for (let char of r) { 
-                if (isNaN(char)) line.push(char); 
-                else for (let i = 0; i < parseInt(char); i++) line.push(null); 
+            for (let char of r) {
+                if (isNaN(char)) line.push(char);
+                else for (let i = 0; i < parseInt(char); i++) line.push(null);
             }
             return line;
         });
         const piece = pieces[row] ? pieces[row][col] : null;
 
-        if (selectedSquare && validMoves.includes(square)) {
+        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
             await gameLogic.executeMove(selectedSquare, square);
             return;
         }
 
         if (piece && status === "ongoing" && piece === piece.toUpperCase()) {
-            setSelectedSquare(square); setIsDragging(true); setHoverSquare(square);
-            try {
-                const res = await axios.post(`${API_BASE}/get-valid-moves`, { game_id: gameId, square: square }, { headers: { Authorization: `Bearer ${token}` } });
-                setValidMoves(res.data.valid_moves || []);
-            } catch (err) { setValidMoves([]); }
-        } else {
-            if (selectedSquare && square !== selectedSquare) {
-                playSound('illegal');
-                setIsAlert(true);
-                setTimeout(() => setIsAlert(false), 400);
+            setIsDragging(true);
+            setHoverSquare(square);
+
+            if (selectedSquare === square) {
+                return; 
             }
-            setSelectedSquare(null); setValidMoves([]); setHoverSquare(null);
+
+            setSelectedSquare(square);
+
+            try {
+                const res = await axios.post(`${API_BASE}/get-valid-moves`, 
+                    { game_id: gameId, square: square }, 
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setValidMoves(res.data.valid_moves || []);
+
+                if (res.data.is_in_check && res.data.valid_moves?.length === 0) {
+                    setIsAlert(true);
+                    setTimeout(() => setIsAlert(false), 400);
+                }
+            } catch (err) {
+                setValidMoves([]);
+            }
+        } else {
+            setSelectedSquare(null);
+            setValidMoves([]);
+            setHoverSquare(null);
         }
     };
 
     const handleMouseUp = async (row, col) => {
-    if (!isDragging) return;
-    
-    const target = getSquareName(row, col);
-    setIsDragging(false); // Azonnal állítsuk le a vizuális húzást
-
-    // 1. ESET: Saját magára ejtettük vissza (Meggondoltuk magunkat)
-    if (target === selectedSquare) {
-        setHoverSquare(null);
-        return;
-    }
-
-    // 2. ESET: Érvényes lépés mezőre ejtettük (Végrehajtás)
-    if (validMoves.includes(target)) {
-        await gameLogic.executeMove(selectedSquare, target);
-    } 
-    // 3. ESET: Érvénytelen mezőre ejtettük
-    else {
-        // Itt a titok: NEM játszunk hangot és NEM adunk riasztást.
-        // Egyszerűen csak nullázzuk a kijelöléseket.
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setHoverSquare(null);
+        if (!isDragging) return;
         
-        // Csak akkor adjunk hibaüzenetet/hangot, ha a felhasználó olyat akart ütni, amit nem szabad
-        // vagy ha kifejezetten "lépni" próbált egy nem szomszédos, de érvénytelen helyre.
-        // Ha ezt is el akarod hagyni, hagyd üresen ezt a részt.
-    }
-};
+        const target = getSquareName(row, col);
+        setIsDragging(false);
 
-    // --- INITIALIZATION ---
+        if (target === selectedSquare) {
+            setHoverSquare(null);
+            return;
+        }
+
+        if (validMoves.includes(target)) {
+            await gameLogic.executeMove(selectedSquare, target);
+        } else {
+            setIsAlert(true);
+            setTimeout(() => setIsAlert(false), 400);
+            setSelectedSquare(null);
+            setValidMoves([]);
+            setHoverSquare(null);
+        }
+    };
+
     useEffect(() => {
         const initialize = async () => {
             if (!token || status === "resigned") return;
@@ -160,67 +137,46 @@ const GameBoard = () => {
                     setGameId(res.data.game_id); 
                     await fetchGameState(res.data.game_id);
                 } else {
-                    await startNewGame();
+                    setGameId(null);
                 }
             } catch (e) {
-                localStorage.removeItem('chessGameId');
-                await startNewGame();
+                setGameId(null);
             }
         };
         initialize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
-    // --- MOUSE MOVE TRACKING ---
-useEffect(() => {
-    const handleMouseMove = (e) => {
-        if (isDragging) {
-            // Frissítjük az egér pozícióját a Hook-ban
-            setMousePos({ x: e.clientX, y: e.clientY });
-
-            // Kiszámoljuk, melyik mező felett járunk éppen a keret kiemeléshez
-            const board = document.getElementById('chess-board')?.getBoundingClientRect();
-            if (board) {
-                const col = Math.floor((e.clientX - board.left) / (board.width / 8));
-                const row = Math.floor((e.clientY - board.top) / (board.height / 8));
-                
-                if (col >= 0 && col < 8 && row >= 0 && row < 8) {
-                    setHoverSquare(getSquareName(row, col));
-                } else {
-                    setHoverSquare(null);
-                }
-            }
-        }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-}, [isDragging, getSquareName, setMousePos, setHoverSquare]);
-
-    // --- KEYBOARD NAVIGATION ---
-// --- KEYBOARD NAVIGATION ---
     useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-            const latestIndex = history.length - 1;
-
-            if (e.key === 'ArrowLeft') {
-                const currentIdx = viewIndex === -1 ? latestIndex : parseInt(viewIndex);
-                if (currentIdx >= 0) {
-                    goToMove(currentIdx - 1);
-                }
-            } else if (e.key === 'ArrowRight') {
-                if (viewIndex === -1) return;
-                const currentIdx = parseInt(viewIndex);
-                if (currentIdx >= latestIndex - 1) {
-                    goToMove(-1);
-                } else {
-                    goToMove(currentIdx + 1);
+        const handleMouseMove = (e) => {
+            if (isDragging) {
+                setMousePos({ x: e.clientX, y: e.clientY });
+                const board = document.getElementById('chess-board')?.getBoundingClientRect();
+                if (board) {
+                    const col = Math.floor((e.clientX - board.left) / (board.width / 8));
+                    const row = Math.floor((e.clientY - board.top) / (board.height / 8));
+                    if (col >= 0 && col < 8 && row >= 0 && row < 8) setHoverSquare(getSquareName(row, col));
+                    else setHoverSquare(null);
                 }
             }
         };
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
+    }, [isDragging, getSquareName, setMousePos, setHoverSquare]);
 
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const latestIndex = history.length - 1;
+            if (e.key === 'ArrowLeft') {
+                const currentIdx = viewIndex === -1 ? latestIndex : parseInt(viewIndex);
+                if (currentIdx >= 0) goToMove(currentIdx - 1);
+            } else if (e.key === 'ArrowRight') {
+                if (viewIndex === -1) return;
+                const currentIdx = parseInt(viewIndex);
+                if (currentIdx >= latestIndex - 1) goToMove(-1);
+                else goToMove(currentIdx + 1);
+            }
+        };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewIndex, history, goToMove]);
@@ -232,47 +188,58 @@ useEffect(() => {
     };
 
     return (
-        <div className="bg-chess-bg min-h-screen text-white font-sans">
-            <Navbar />
-            <div className="flex justify-center p-10 gap-7.5">
-                <div className="relative">
-                    {/* Itt adjuk át a hiányzó handlereket a Gridnek! */}
+        <div className="flex justify-center items-start p-10 gap-10 bg-bg-primary min-h-screen w-full">
+            <div className="relative">
+                <div 
+                    id="chess-board" 
+                    className={`w-[720px] h-[720px] border-4 border-border-color rounded-xl overflow-hidden shadow-2xl transition-opacity duration-500 ${!isGameActive ? 'opacity-60' : 'opacity-100'}`}
+                    style={{ pointerEvents: isGameActive ? 'auto' : 'none' }}
+                >
                     <ChessBoardGrid 
                         gameLogic={gameLogic} 
                         onMouseDown={handleMouseDown} 
                         onMouseUp={handleMouseUp} 
                     />
-                    
-                    <AnimatePresence>
-                    {status !== "ongoing" && (
+                </div>
+                
+                <AnimatePresence>
+                    {status !== "ongoing" && isGameActive && (
                         <motion.div 
-                            initial={{ opacity: 0, scale: 0.5 }} 
+                            initial={{ opacity: 0, scale: 0.9 }} 
                             animate={{ opacity: 1, scale: 1 }} 
-                            // Itt a z-indexet emeld meg 1000-re vagy legalább 500-ra
-                            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 p-10 rounded-xl z-1000 text-center border border-[#454241] shadow-2xl"
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-xl z-[1000]"
                         >
-                            <h1 className="text-[36px] mb-2.5 font-bold">
-                                {status === "checkmate" ? "Checkmate" : "Game Over"}
-                            </h1>
-                            <button 
-                                onClick={startNewGame} 
-                                className="px-7.5 py-3 bg-[#81b64c] text-white rounded-sm text-[18px] font-bold hover:bg-[#a3d16a] transition-colors"
-                            >
-                                New Game
-                            </button>
+                            <div className="bg-[#262421] p-10 rounded-3xl text-center border border-border-color shadow-2xl">
+                                <h1 className="text-4xl font-bold text-white mb-4">
+                                    {status === "checkmate" ? "Checkmate!" : "Game Over"}
+                                </h1>
+                                <button 
+                                    onClick={startNewGame} 
+                                    className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
+                                >
+                                    New Game
+                                </button>
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
-                </div>
+            </div>
 
-                <MoveListPanel 
-                    history={history}
-                    viewIndex={viewIndex}
-                    status={status}
-                    goToMove={goToMove}
-                    handleResign={handleResign}
-                    renderNotation={renderNotation}
-                />
+            <div className="w-[450px]">
+                {isGameActive ? (
+                    <MoveListPanel 
+                        history={history}
+                        viewIndex={viewIndex}
+                        status={status}
+                        goToMove={goToMove}
+                        handleResign={handleResign}
+                        renderNotation={renderNotation}
+                        startNewGame={startNewGame}
+                    />
+                ) : (
+                    <PlaySelectionPanel onStartGame={startNewGame} />
+                )}
             </div>
         </div>
     );

@@ -1,9 +1,20 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { User, LogOut } from 'lucide-react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { 
+    Gamepad2, 
+    Puzzle, 
+    GraduationCap, 
+    MoreHorizontal, 
+    Search, 
+    User, 
+    Settings, 
+    Bell, 
+    LogOut 
+} from 'lucide-react';
 
 const Navbar = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const username = localStorage.getItem('chessUsername');
 
     const handleLogout = () => {
@@ -12,46 +23,111 @@ const Navbar = () => {
         window.location.reload();
     };
 
+    // Segédfüggvény az aktív link jelöléséhez
+    const isActive = (path) => location.pathname === path;
+
     return (
-        <nav className="flex justify-between items-center px-10 py-2.5 bg-[#262421] border-b border-[#454241] text-white sticky top-0 z-1000">
+        <aside className="w-[140px] lg:w-[160px] h-screen bg-[#262421] flex flex-col py-4 border-r border-[#312e2b] sticky top-0 left-0 z-[1000]">
             {/* Logo Szekció */}
-            <Link to="/play" className="flex items-center gap-2.5 no-underline text-white group">
+            <Link to="/play" className="flex flex-col items-center gap-1 mb-8 no-underline text-white group px-2 text-center">
                 <img 
                     src="/assets/pieces/white_pawn.png" 
-                    className="w-7.5 transition-transform group-hover:scale-110" 
+                    className="w-10 transition-transform group-hover:scale-110" 
                     alt="logo" 
                 />
-                <span className="font-bold text-xl tracking-tight">
+                <span className="font-bold text-lg leading-tight tracking-tight">
                     Checkmate<span className="text-[#81b64c]">.com</span>
                 </span>
             </Link>
 
-            {/* Felhasználói Szekció */}
-            <div className="flex items-center gap-5">
-                {/* Profil link */}
+            {/* Fő Navigációs Linkek */}
+            <nav className="flex-1 flex flex-col gap-1 px-2">
+                <NavItem 
+                    to="/play" 
+                    icon={<Gamepad2 size={24} />} 
+                    label="Play" 
+                    active={isActive('/play')} 
+                    badge="2"
+                />
+                <NavItem 
+                    to="/puzzles" 
+                    icon={<Puzzle size={24} />} 
+                    label="Puzzles" 
+                    active={isActive('/puzzles')} 
+                />
+                <NavItem 
+                    to="/learn" 
+                    icon={<GraduationCap size={24} />} 
+                    label="Learn" 
+                    active={isActive('/learn')} 
+                />
+                <NavItem 
+                    to="/more" 
+                    icon={<MoreHorizontal size={24} />} 
+                    label="More" 
+                    active={isActive('/more')} 
+                />
+            </nav>
+
+            {/* Alsó Szekció: Keresés, Profil, Beállítások */}
+            <div className="mt-auto flex flex-col gap-2 px-2 pt-4 border-t border-[#312e2b]">
+                <button className="flex items-center gap-3 px-3 py-2 text-[#bab9b8] hover:bg-[#312e2b] hover:text-white rounded-lg transition-all cursor-pointer">
+                    <Search size={20} />
+                    <span className="text-sm font-semibold">Search</span>
+                </button>
+
                 <div 
-                    className="flex items-center gap-2 cursor-pointer group"
                     onClick={() => navigate('/profile')}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${isActive('/profile') ? 'bg-[#312e2b] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'}`}
                 >
-                    <div className="w-8 h-8 bg-[#454241] rounded flex justify-center items-center group-hover:bg-[#55524f] transition-colors">
-                        <User size={20} className="text-[#81b64c]" />
+                    <div className="w-6 h-6 bg-[#454241] rounded flex justify-center items-center overflow-hidden">
+                        <User size={16} className="text-[#81b64c]" />
                     </div>
-                    <span className="font-semibold group-hover:text-[#81b64c] transition-colors">
-                        {username}
-                    </span>
+                    <span className="text-sm font-semibold truncate">{username}</span>
                 </div>
 
-                {/* Kijelentkezés gomb */}
-                <button 
-                    onClick={handleLogout} 
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-transparent border border-[#454241] rounded text-[#8b8987] hover:text-white hover:bg-chess-bg hover:border-[#55524f] transition-all cursor-pointer"
-                >
-                    <LogOut size={16} />
-                    <span className="text-sm font-medium">Logout</span>
-                </button>
+                <div className="flex justify-between items-center px-2 py-2">
+                    <button className="text-[#bab9b8] hover:text-white transition-colors cursor-pointer relative">
+                        <Bell size={20} />
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#e74c3c] text-[10px] text-white rounded-full flex items-center justify-center font-bold border-2 border-[#262421]">1</span>
+                    </button>
+                    <button className="text-[#bab9b8] hover:text-white transition-colors cursor-pointer">
+                        <Settings size={20} />
+                    </button>
+                    <button 
+                        onClick={handleLogout}
+                        className="text-[#bab9b8] hover:text-[#e74c3c] transition-colors cursor-pointer"
+                        title="Logout"
+                    >
+                        <LogOut size={20} />
+                    </button>
+                </div>
             </div>
-        </nav>
+        </aside>
     );
 };
+
+// Segédkomponens a menüpontokhoz
+const NavItem = ({ to, icon, label, active, badge }) => (
+    <Link 
+        to={to} 
+        className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all relative group ${
+            active 
+            ? 'bg-[#312e2b] text-white' 
+            : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'
+        }`}
+    >
+        <span className={`${active ? 'text-white' : 'text-[#bab9b8] group-hover:text-white'}`}>
+            {icon}
+        </span>
+        <span className="text-[15px] font-bold">{label}</span>
+        
+        {badge && (
+            <span className="absolute right-2 w-5 h-5 bg-[#e74c3c] text-[11px] text-white rounded-full flex items-center justify-center font-bold">
+                {badge}
+            </span>
+        )}
+    </Link>
+);
 
 export default Navbar;

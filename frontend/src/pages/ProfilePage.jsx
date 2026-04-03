@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import Navbar from '../components/Navbar';
 
 const ProfilePage = () => {
     const [user, setUser] = useState({ username: '', email: '', provider: '' });
@@ -48,8 +47,6 @@ const ProfilePage = () => {
 
     return (
         <div className="min-h-screen bg-chess-bg text-white font-sans">
-            <Navbar />
-            
             <div className="max-w-150 mx-auto mt-10 p-8 bg-[#262421] rounded-lg shadow-xl border border-chess-bg">
                 <h2 className="text-2xl font-bold mb-2">Profile Settings</h2>
                 <p className="text-[#8b8987] text-sm mb-6">Manage your account information and password.</p>
