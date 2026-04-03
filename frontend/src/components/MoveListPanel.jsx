@@ -1,7 +1,9 @@
+import React from 'react';
+
 const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, renderNotation, startNewGame }) => {
     const isOngoing = status === "ongoing";
 
-   // --- LOGIKA: Fél-lépések párosítása ---
+    // --- LOGIKA: Fél-lépések párosítása ---
     const movesOnly = history.filter(m => m.m !== "start");
     const rows = [];
     for (let i = 0; i < movesOnly.length; i += 2) {
@@ -12,77 +14,96 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
         });
     }
 
-    return (
-        <div className="w-[450px] h-[720px] bg-[#262421] flex flex-col shadow-2xl font-sans border border-[#312e2b] rounded-xl overflow-hidden">
-            {/* Felső rész: Státusz */}
-            <div className="p-5 border-b border-[#1b1a18] bg-[#21201d] flex justify-between items-center h-[76px]">
-                <span className="text-xl font-bold text-white">Analysis</span>
-                {status !== "ongoing" && (
-                    <button onClick={() => window.location.reload()} className="text-xs text-[#81b64c] font-bold hover:underline">
-                        Back to Menu
-                    </button>
-                )}
-            </div>
+    // Segédfüggvény az index lekéréséhez a kijelöléshez
+    const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
-            {/* Felső Navigáció */}
-            <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
-                <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} hasX={!isOngoing} />
+    return (
+        <div className="w-[450px] h-[720px] bg-[#262421] flex flex-col font-sans border border-[#312e2b] rounded-xl overflow-hidden">
+            
+            {/* Felső Navigáció (Play, New Game, stb.) */}
+            <div className="grid grid-cols-4 bg-[#21201d] border-b border-[#1b1a18]">
+                <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
                 <TopTab icon="fa-plus" label="New Game" onClick={startNewGame} />
                 <TopTab icon="fa-th" label="Games" />
                 <TopTab icon="fa-users" label="Players" />
             </div>
 
-            <div className="flex bg-[#262421] px-2 pt-2 gap-4 text-[13px] font-bold text-[#666]">
-                <div className="pb-2 border-b-2 border-[#81b64c] px-4 cursor-pointer text-white">Moves</div>
-                <div className="pb-2 px-4 cursor-pointer hover:text-white">Info</div>
-                <div className="pb-2 px-4 cursor-pointer hover:text-white">Openings</div>
+            {/* Al-navigáció (Moves, Chat, Info) */}
+            <div className="flex bg-[#21201d] text-[13px] font-bold text-[#989795] border-b border-[#1b1a18]">
+                <div className="py-3 px-8 border-b-2 border-white text-white cursor-pointer bg-[#262421]">Moves</div>
+                <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Chat</div>
+                <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Info</div>
+            </div>
+
+            {/* Opening név */}
+            <div className="bg-[#262421] p-3 text-[13px] text-[#bab9b8] flex justify-between items-center border-b border-[#1b1a18]">
+                <span className="truncate pr-2">Van 't Kruijs Opening</span>
+                <i className="fas fa-book text-[#666] text-xs cursor-pointer hover:text-white"></i>
             </div>
 
             {/* Lépéslista terület */}
-            <div className="flex-1 overflow-y-auto no-scrollbar bg-[#2b2926]">
-                <div className="p-3 text-[12px] text-[#666] font-bold border-b border-chess-bg/30">Starting Position</div>
-                <div className="flex flex-col">
-                    {rows.map((row, i) => (
-                        <div key={i} className="flex h-12 border-b border-chess-bg/10">
-                            <div className="w-10 flex items-center justify-center text-[#666] text-[12px] font-semibold bg-chess-panel-header/50">
+            <div className="flex-1 overflow-y-auto no-scrollbar bg-[#262421]">
+            <div className="flex flex-col">
+                {rows.map((row, i) => {
+                    const whiteIdx = getHistoryIndex(row.white);
+                    const blackIdx = getHistoryIndex(row.black);
+                    const isOdd = i % 2 === 0;
+
+                    return (
+                        <div key={i} className={`flex h-10 items-center ${isOdd ? 'bg-[#2b2926]' : 'bg-transparent'} hover:bg-[#33312e]/50`}>
+                            {/* Move Number - Fix szélesség */}
+                            <div className="w-10 text-center text-[#666] text-[13px] font-semibold shrink-0">
                                 {row.moveNumber}.
                             </div>
                             
+                            {/* White Move - Fix szélesség (w-24), hogy közel legyen a feketéhez */}
                             <div 
-                                onClick={() => goToMove(history.findIndex(h => h.num === row.white.num))}
-                                className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${viewIndex === history.findIndex(h => h.num === row.white.num) ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
+                                onClick={() => goToMove(whiteIdx)}
+                                className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors rounded-sm
+                                    ${viewIndex === whiteIdx ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-[#33312e]'}
+                                `}
                             >
                                 {renderNotation(row.white.m)}
                             </div>
 
+                            {/* Black Move - Fix szélesség (w-24) */}
                             <div 
-                                onClick={() => row.black && goToMove(history.findIndex(h => h.num === row.black.num))}
-                                className={`flex-1 h-full flex items-center px-3 cursor-pointer font-bold text-[14px] transition-colors ${row.black && viewIndex === history.findIndex(h => h.num === row.black.num) ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-white/5'}`}
+                                onClick={() => row.black && goToMove(blackIdx)}
+                                className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors rounded-sm
+                                    ${row.black && viewIndex === blackIdx ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-[#33312e]'}
+                                `}
                             >
                                 {row.black ? renderNotation(row.black.m) : ""}
                             </div>
 
-                            <div className="w-20 flex flex-col justify-center border-l border-chess-bg/40 px-2 bg-chess-panel-header/20">
-                                <div className="flex items-center justify-end gap-1.5 h-1/2">
-                                    <span className="text-[10px] text-[#888] font-mono">
-                                        {row.white.t > 0 ? `${row.white.t}s` : "0.1s"} 
+                            {/* Kitöltő üres rész, hogy az idő a jobb szélre kerüljön */}
+                            <div className="flex-1"></div>
+
+                            {/* Time column (Jobb szélre igazítva) */}
+                            <div className="w-16 flex flex-col justify-center pr-3 border-l border-[#312e2b]/30">
+                                <div className="flex items-center justify-end gap-1 leading-none h-[14px] mb-0.5">
+                                    <span className="text-[10px] text-[#989795] font-sans">
+                                        {row.white.t > 0 ? `${row.white.t}s` : "0.1s"}
                                     </span>
-                                    <div className="w-1 h-3 bg-white rounded-sm opacity-80"></div>
+                                    <div className="w-[3px] h-3 bg-[#bab9b8] rounded-full opacity-40"></div>
                                 </div>
-                                <div className="flex items-center justify-end gap-1.5 h-1/2">
-                                    <span className="text-[10px] text-[#666] font-mono">
-                                        {row.black ? `${row.black.t}s` : ""}
-                                    </span>
-                                    <div className={`w-1 h-3 bg-[#666] rounded-sm ${row.black ? 'opacity-50' : 'opacity-0'}`}></div>
-                                </div>
+                                {row.black && (
+                                    <div className="flex items-center justify-end gap-1 leading-none h-[14px]">
+                                        <span className="text-[10px] text-[#666] font-sans">
+                                            {row.black.t}s
+                                        </span>
+                                        <div className="w-[3px] h-3 bg-[#666] rounded-full opacity-40"></div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    ))}
-                </div>
+                    );
+                })}
             </div>
+        </div>
 
-            {/* Navigációs gombok */}
-            <div className="bg-[#262421] p-4 flex gap-2 border-t border-[#1b1a18]">
+            {/* Navigációs gombok (Sötétebb design) */}
+            <div className="bg-[#21201d] p-3 flex gap-1 border-t border-[#1b1a18]">
                 <NavBtn icon="fa-step-backward" onClick={() => goToMove(0)} active={viewIndex !== 0} />
                 <NavBtn icon="fa-chevron-left" 
                     onClick={() => {
@@ -91,57 +112,51 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                     }} 
                     active={viewIndex !== 0} 
                 />
-                <NavBtn icon="fa-play" onClick={() => goToMove(-1)} active={viewIndex !== -1} />
+                <div className="flex-1 bg-[#312e2b] rounded flex justify-center items-center cursor-pointer hover:bg-[#3b3835]">
+                    <i className="fas fa-play text-white text-sm"></i>
+                </div>
                 <NavBtn icon="fa-chevron-right" 
                     onClick={() => {
                         if (viewIndex === -1) return;
                         const currentIdx = parseInt(viewIndex);
-                        if (currentIdx >= history.length - 2) {
-                            goToMove(-1);
-                        } else {
-                            goToMove(currentIdx + 1);
-                        }
+                        if (currentIdx < history.length - 1) goToMove(currentIdx + 1);
                     }} 
                     active={viewIndex !== -1} 
                 />
                 <NavBtn icon="fa-step-forward" onClick={() => goToMove(-1)} active={viewIndex !== -1} />
             </div>
 
-            {/* Alsó toolbar (Share, Expand, Search, Draw/Resign) */}
-            <div className="p-3 bg-[#262421] flex justify-between items-center text-[#666] border-t border-[#1b1a18]">
-                <div className="flex gap-4">
-                    <i className="fas fa-share-alt hover:text-white cursor-pointer"></i>
-                    <i className="fas fa-expand hover:text-white cursor-pointer"></i>
-                    <i className="fas fa-search hover:text-white cursor-pointer"></i>
+            {/* Toolbar: Draw / Resign */}
+            <div className="p-3 bg-[#21201d] flex justify-between items-center text-[#989795] border-t border-[#1b1a18]">
+                <div className="flex gap-4 items-center">
+                    <button className="flex items-center gap-2 hover:text-white transition-colors">
+                        <i className="fas fa-half-circle text-sm"></i>
+                        <span className="text-[13px] font-bold">Draw</span>
+                    </button>
+                    <button onClick={handleResign} className="flex items-center gap-2 hover:text-white transition-colors">
+                        <i className="fas fa-flag text-sm"></i>
+                        <span className="text-[13px] font-bold">Resign</span>
+                    </button>
                 </div>
-                
-                {status === "ongoing" && (
-                    <div className="flex gap-4 font-bold text-[12px] text-[#bab9b8]">
-                        <button className="hover:text-white transition-colors">Draw</button>
-                        <button onClick={handleResign} className="hover:text-white transition-colors">Resign</button>
-                    </div>
-                )}
-                
-                <i className="fas fa-redo hover:text-white cursor-pointer"></i>
+                <i className="fas fa-sync-alt hover:text-white cursor-pointer transition-transform hover:rotate-180"></i>
             </div>
         </div>
     );
 };
 
-const TopTab = ({ icon, label, active, hasX, onClick }) => (
-    <div onClick={onClick} className={`relative flex flex-col items-center py-3 cursor-pointer ${active ? 'bg-[#262421] text-white' : 'text-[#666]'}`}>
-        {hasX && <i className="fas fa-times absolute top-1 right-2 text-[10px] opacity-30"></i>}
+const TopTab = ({ icon, label, active, onClick }) => (
+    <div onClick={onClick} className={`flex flex-col items-center py-2 px-1 flex-1 cursor-pointer transition-colors border-b-2 ${active ? 'bg-[#262421] border-[#81b64c] text-white' : 'border-transparent text-[#989795] hover:bg-[#2b2926]'}`}>
         <i className={`fas ${icon} text-lg mb-1`}></i>
-        <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
+        <span className="text-[9px] font-bold uppercase">{label}</span>
     </div>
 );
 
 const NavBtn = ({ icon, onClick, active }) => (
     <button 
-        onClick={active ? onClick : (e) => e.preventDefault()}
-        className={`flex-1 h-12 rounded bg-chess-bg flex justify-center items-center text-[#bab9b8] transition-colors ${active ? 'hover:bg-[#454241] cursor-pointer' : 'cursor-not-allowed'}`}
+        onClick={active ? onClick : undefined}
+        className={`w-14 h-10 rounded bg-[#312e2b] flex justify-center items-center text-[#bab9b8] transition-colors ${active ? 'hover:bg-[#3b3835] cursor-pointer text-white' : 'opacity-40 cursor-not-allowed'}`}
     >
-        <i className={`fas ${icon} text-[16px]`}></i>
+        <i className={`fas ${icon} text-sm`}></i>
     </button>
 );
 

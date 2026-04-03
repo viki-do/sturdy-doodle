@@ -15,10 +15,23 @@ const GameBoard = () => {
         token, gameId, setGameId, setFen, setLastMove, setViewIndex, 
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare, 
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
-        setDragOffset, setMousePos
+        setDragOffset, setMousePos, playSound
     } = gameLogic;
 
     const isGameActive = !!gameId && gameId !== "null";
+
+    // --- NAVIGÁCIÓS HANGOK ---
+    const playNavigationSound = useCallback((notation) => {
+        if (!notation || notation === "start") return;
+        // Kicsit várunk a vizuális váltás után a hanggal
+        setTimeout(() => {
+            if (notation.includes('#')) playSound('checkmate');
+            else if (notation.includes('+')) playSound('move-check');
+            else if (notation.includes('O-O')) playSound('castle');
+            else if (notation.includes('x')) playSound('capture');
+            else playSound('move');
+        }, 50);
+    }, [playSound]);
 
     const goToMove = useCallback((index, isWhiteOnly = false) => {
         setSelectedSquare(null);
@@ -28,12 +41,15 @@ const GameBoard = () => {
             if (latest) {
                 setFen(latest.fen);
                 setLastMove({ from: latest.from, to: latest.to });
+                playNavigationSound(latest.m);
             }
             return;
         }
         const move = history[index];
         if (!move) return;
         
+        playNavigationSound(move.m);
+
         if (isWhiteOnly) {
             const tempChess = new Chess(move.fen);
             const undone = tempChess.undo();
@@ -47,7 +63,7 @@ const GameBoard = () => {
             setLastMove({ from: move.from, to: move.to });
             setViewIndex(index);
         }
-    }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare]);
+    }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playNavigationSound]);
 
     const handleMouseDown = async (e, row, col) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -90,12 +106,10 @@ const GameBoard = () => {
                     { game_id: gameId, square: square }, 
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
+                
+                // Beállítjuk az érvényes lépéseket (pöttyöket)
                 setValidMoves(res.data.valid_moves || []);
-
-                if (res.data.is_in_check && res.data.valid_moves?.length === 0) {
-                    setIsAlert(true);
-                    setTimeout(() => setIsAlert(false), 400);
-                }
+                
             } catch (err) {
                 setValidMoves([]);
             }
@@ -108,7 +122,6 @@ const GameBoard = () => {
 
     const handleMouseUp = async (row, col) => {
         if (!isDragging) return;
-        
         const target = getSquareName(row, col);
         setIsDragging(false);
 
@@ -120,6 +133,7 @@ const GameBoard = () => {
         if (validMoves.includes(target)) {
             await gameLogic.executeMove(selectedSquare, target);
         } else {
+            playSound('illegal'); // ILLEGAL HANG
             setIsAlert(true);
             setTimeout(() => setIsAlert(false), 400);
             setSelectedSquare(null);
@@ -139,9 +153,7 @@ const GameBoard = () => {
                 } else {
                     setGameId(null);
                 }
-            } catch (e) {
-                setGameId(null);
-            }
+            } catch (e) { setGameId(null); }
         };
         initialize();
     }, [token]);
@@ -188,43 +200,45 @@ const GameBoard = () => {
     };
 
     return (
-        <div className="flex justify-center items-start p-10 gap-10 bg-bg-primary min-h-screen w-full">
-            <div className="relative">
-                <div 
-                    id="chess-board" 
-                    className={`w-[720px] h-[720px] border-4 border-border-color rounded-xl overflow-hidden shadow-2xl transition-opacity duration-500 ${!isGameActive ? 'opacity-60' : 'opacity-100'}`}
-                    style={{ pointerEvents: isGameActive ? 'auto' : 'none' }}
-                >
-                    <ChessBoardGrid 
-                        gameLogic={gameLogic} 
-                        onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp} 
-                    />
-                </div>
-                
-                <AnimatePresence>
-                    {status !== "ongoing" && isGameActive && (
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.9 }} 
-                            animate={{ opacity: 1, scale: 1 }} 
-                            exit={{ opacity: 0, scale: 0.9 }}
-                            className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-xl z-[1000]"
-                        >
-                            <div className="bg-[#262421] p-10 rounded-3xl text-center border border-border-color shadow-2xl">
-                                <h1 className="text-4xl font-bold text-white mb-4">
-                                    {status === "checkmate" ? "Checkmate!" : "Game Over"}
-                                </h1>
-                                <button 
-                                    onClick={startNewGame} 
-                                    className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
-                                >
-                                    New Game
-                                </button>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+    <div className="flex justify-center items-start p-10 gap-10 bg-bg-primary min-h-screen w-full">
+        <div className="relative">
+            <div 
+                id="chess-board" 
+                // ELTÁVOLÍTVA: opacity-60, opacity-100 és transition-opacity
+                className="w-[720px] h-[720px] overflow-hidden"
+                // Megtartva: pointer-events, hogy ne lehessen interakcióba lépni vele választás előtt
+                style={{ pointerEvents: isGameActive ? 'auto' : 'none' }}
+            >
+                <ChessBoardGrid 
+                    gameLogic={gameLogic} 
+                    onMouseDown={handleMouseDown} 
+                    onMouseUp={handleMouseUp} 
+                />
             </div>
+            
+            <AnimatePresence>
+                {status !== "ongoing" && isGameActive && (
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }} 
+                        animate={{ opacity: 1, scale: 1 }} 
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-xl z-[1000]"
+                    >
+                        <div className="bg-[#262421] p-10 rounded-3xl text-center border border-border-color shadow-2xl">
+                            <h1 className="text-4xl font-bold text-white mb-4">
+                                {status === "checkmate" ? "Checkmate!" : "Game Over"}
+                            </h1>
+                            <button 
+                                onClick={startNewGame} 
+                                className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
+                            >
+                                New Game
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
 
             <div className="w-[450px]">
                 {isGameActive ? (

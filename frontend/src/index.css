@@ -2,8 +2,8 @@
 
 /* Ide jöhetnek az egyedi színeid a Tailwind 4 új szintaxisával */
 @theme {
-  --color-chess-light: #eeeed2;
-  --color-chess-dark: #769656;
+  --color-chess-light: #ececd0;
+  --color-chess-dark: #729551;
   --color-chess-highlight: rgba(242, 245, 102, 0.8);
   --color-chess-board-border: #262421;
   --color-chess-bg: #312e2b;

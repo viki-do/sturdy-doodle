@@ -21,6 +21,12 @@ export const useChessGame = () => {
     const userId = localStorage.getItem('chessUserId');
     const token = localStorage.getItem('chessToken');
 
+    // --- HANG LEJÁTSZÓ SEGÉDFÜGGVÉNY ---
+    const playSound = useCallback((soundName) => {
+        const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
+        audio.play().catch(err => console.log(`Audio error: ${soundName}`));
+    }, []);
+
     const getSquareName = (row, col) => {
         const filesArr = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
         return `${filesArr[col]}${8 - row}`;
@@ -61,54 +67,75 @@ export const useChessGame = () => {
             setHistory([]);
             setViewIndex(-1);
             setStatus("ongoing");
+            playSound('game-start'); // ÚJ JÁTÉK HANG
         } catch (err) { 
             console.error("Hiba az új játék indításakor:", err);
         }
-    }, [userId, token, API_BASE]);
+    }, [userId, token, API_BASE, playSound]);
 
     const executeMove = async (from, to) => {
-    const chess = new Chess(fen);
-    const moveAttempt = chess.move({ from, to, promotion: 'q' });
+        const chess = new Chess(fen);
+        const moveAttempt = chess.move({ from, to, promotion: 'q' });
 
-    if (!moveAttempt) return;
+        if (!moveAttempt) return;
 
-    // 1. Azonnali állapotfrissítés (ez indítja a 0.2s-os animációt)
-    setFen(chess.fen());
-    setLastMove({ from, to });
-    
-    // 2. UI tisztítás
-    setSelectedSquare(null);
-    setValidMoves([]);
-    setIsDragging(false);
+        // 1. Optimista frissítés az animációhoz
+        setFen(chess.fen());
+        setLastMove({ from, to });
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setIsDragging(false);
 
-    try {
-        const res = await axios.post(`${API_BASE}/move`,
-            { game_id: gameId, move: `${from}${to}` },
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        // 3. Bot válasza (0.4s múlva, hogy ne zavarja a te csúszásodat)
+        // 2. SZINKRONIZÁLT HANG (225ms késleltetés a 0.2s animációhoz)
         setTimeout(() => {
-            if (res.data.bot_move && res.data.bot_move.from) {
-                setFen(res.data.new_fen);
-                setLastMove({ from: res.data.bot_move.from, to: res.data.bot_move.to });
-            }
-            fetchGameState(gameId);
-        }, 400);
+            if (chess.isCheckmate()) playSound('checkmate');
+            else if (chess.isStalemate() || chess.isDraw()) playSound('stalemate');
+            else if (chess.isCheck()) playSound('move-check');
+            else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
+            else if (moveAttempt.flags.includes('p')) playSound('promote');
+            else if (moveAttempt.captured) playSound('capture');
+            else playSound('move');
+        }, 225);
 
-    } catch (err) {
-        fetchGameState(gameId);
-    }
-};
+        try {
+            const res = await axios.post(`${API_BASE}/move`,
+                { game_id: gameId, move: `${from}${to}` },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            // 3. Bot válasza (kicsit később, hogy ne vágjanak egymás szavába)
+            setTimeout(() => {
+                const bot = res.data.bot_move;
+                if (bot && bot.from) {
+                    setFen(res.data.new_fen);
+                    setLastMove({ from: bot.from, to: bot.to });
+
+                    // Bot hangja is szinkronizálva az ő 0.2s-os animációjához
+                    setTimeout(() => {
+                        if (res.data.is_checkmate) playSound('game-end');
+                        else if (bot.is_check) playSound('move-check');
+                        else if (bot.is_capture) playSound('capture');
+                        else if (bot.from === 'e8' && (bot.to === 'g8' || bot.to === 'c8')) playSound('castle');
+                        else playSound('move');
+                    }, 225);
+                }
+                fetchGameState(gameId);
+            }, 600);
+
+        } catch (err) {
+            fetchGameState(gameId);
+        }
+    };
 
     const handleResign = async () => {
         if (!window.confirm("Biztosan feladod a játszmát?")) return;
         
         const currentId = gameId;
+        playSound('game-end'); // RESIGN HANG
+        
         localStorage.removeItem('chessGameId');
         setGameId(null);
         setStatus("resigned");
-        
         setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         setLastMove({ from: null, to: null });
         setHistory([]);
@@ -138,30 +165,37 @@ export const useChessGame = () => {
                         if (res.data.history.length !== history.length) {
                             const newHistory = res.data.history;
                             const latestMove = newHistory[newHistory.length - 1];
+                            const m = latestMove.m;
 
                             setHistory(newHistory);
 
-                            if (newHistory.length % 2 === 0) {
-                                if (latestMove.fen !== fen) {
-                                    setFen(latestMove.fen);
-                                    setLastMove({ from: latestMove.from, to: latestMove.to });
-                                }
+                            // CSAK BOT LÉPÉSNÉL (Páros history hossz)
+                            if (newHistory.length % 2 === 0 && latestMove.fen !== fen) {
+                                setFen(latestMove.fen);
+                                setLastMove({ from: latestMove.from, to: latestMove.to });
+
+                                // Polling alatti hang szinkron
+                                setTimeout(() => {
+                                    if (m.includes('#')) playSound('checkmate');
+                                    else if (m.includes('+')) playSound('move-check');
+                                    else if (m.includes('O-O')) playSound('castle');
+                                    else if (m.includes('x')) playSound('capture');
+                                    else playSound('move');
+                                }, 225);
                             }
                         }
                     }
-                } catch (err) {
-                    console.error("Polling error:", err);
-                }
+                } catch (err) { console.error("Polling error:", err); }
             }, 3000);
         }
         return () => clearInterval(interval);
-    }, [gameId, fen, status, token, API_BASE, history.length, viewIndex]);
+    }, [gameId, fen, status, token, API_BASE, playSound, history.length]);
 
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves, 
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging, 
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset, 
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign, 
-        executeMove, token, API_BASE
+        executeMove, playSound, token, API_BASE
     };
 };

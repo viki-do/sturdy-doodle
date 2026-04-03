@@ -4,7 +4,7 @@ import { Zap, Monitor, GraduationCap, Users, Trophy, Dices } from 'lucide-react'
 const PlaySelectionPanel = ({ onStartGame }) => {
     return (
         /* A külső keret hajszálpontosan ugyanaz, mint a MoveListPanel-é */
-        <div className="w-[450px] h-[720px] bg-[#262421] rounded-xl border border-[#312e2b] shadow-2xl overflow-hidden flex flex-col font-sans">
+        <div className="w-[450px] h-[720px] bg-[#262421] rounded-xl border border-[#312e2b] overflow-hidden flex flex-col font-sans">
             
             {/* Fejléc - Ugyanaz a magasság és háttér, mint a MoveList-nél */}
             <div className="p-5 border-b border-[#1b1a18] bg-[#21201d] flex items-center justify-center gap-3">
