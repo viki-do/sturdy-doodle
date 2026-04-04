@@ -20,7 +20,8 @@ export const useChessGame = () => {
 
     const userId = localStorage.getItem('chessUserId');
     const token = localStorage.getItem('chessToken');
-    const [reason, setReason] = useState(""); // ÚJ STATE
+    const [reason, setReason] = useState(""); 
+    const [pendingPromotion, setPendingPromotion] = useState(null);
 
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
@@ -93,55 +94,88 @@ export const useChessGame = () => {
         }
     }, [userId, token, API_BASE, playSound]);
 
-    const executeMove = async (from, to) => {
-        const chess = new Chess(fen);
-        const moveAttempt = chess.move({ from, to, promotion: 'q' });
+   const executeMove = async (from, to, promotion = null) => {
+    const chess = new Chess(fen);
+    
+    // 1. PROMÓTÁLÁS ELLENŐRZÉSE
+    // Megnézzük, hogy gyalog lép-e az utolsó sorra (fehérnél 8, feketénél 1)
+    const piece = chess.get(from);
+    const isPromotion = piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1'));
 
-        if (!moveAttempt) return;
+    // Ha promótálás történik, de még nincs megadva, hogy mivé (promotion paraméter null)
+    if (isPromotion && !promotion) {
+        setPendingPromotion({ from, to }); // Ez nyitja meg a választó UI-t a táblán
+        return; // Kilépünk, nem küldjük el a lépést a backendnek, amíg nincs választás
+    }
 
-        setFen(chess.fen());
-        setLastMove({ from, to });
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setIsDragging(false);
+    // 2. LÉPÉS VÉGREHAJTÁSA LOKÁLISAN (Optimista frissítés)
+    // Ha nem promóció, vagy már megvan a választott figura, végrehajtjuk.
+    // Alapértelmezés 'q' (vezér), ha valami hiba folytán nem érkezne meg a választás.
+    const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
 
+    if (!moveAttempt) return;
+
+    // UI állapotok alaphelyzetbe állítása
+    setPendingPromotion(null);
+    setFen(chess.fen());
+    setLastMove({ from, to });
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setIsDragging(false);
+
+    // SAJÁT HANGOK LEJÁTSZÁSA
+    setTimeout(() => {
+        if (chess.isCheckmate()) playSound('checkmate');
+        else if (chess.isStalemate() || chess.isDraw()) playSound('stalemate');
+        else if (chess.isCheck()) playSound('move-check');
+        else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
+        else if (moveAttempt.flags.includes('p')) playSound('promote'); // Promótálás hangja
+        else if (moveAttempt.captured) playSound('capture');
+        else playSound('move');
+    }, 225);
+
+    // 3. SZERVER ÉRTESÍTÉSE
+    try {
+        // Fontos: A move string most már 5 karakteres lesz, ha van promóció: e7e8q
+        const res = await axios.post(`${API_BASE}/move`,
+            { 
+                game_id: gameId, 
+                move: `${from}${to}${promotion || ""}` 
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        // BOT VÁLASZÁNAK KEZELÉSE
         setTimeout(() => {
-            if (chess.isCheckmate()) playSound('checkmate');
-            else if (chess.isStalemate() || chess.isDraw()) playSound('stalemate');
-            else if (chess.isCheck()) playSound('move-check');
-            else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
-            else if (moveAttempt.flags.includes('p')) playSound('promote');
-            else if (moveAttempt.captured) playSound('capture');
-            else playSound('move');
-        }, 225);
+            const bot = res.data.bot_move;
+            if (bot && bot.from) {
+                setFen(res.data.new_fen);
+                setLastMove({ from: bot.from, to: bot.to });
 
-        try {
-            const res = await axios.post(`${API_BASE}/move`,
-                { game_id: gameId, move: `${from}${to}` },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            setTimeout(() => {
-                const bot = res.data.bot_move;
-                if (bot && bot.from) {
-                    setFen(res.data.new_fen);
-                    setLastMove({ from: bot.from, to: bot.to });
-
-                    setTimeout(() => {
-                        if (res.data.is_checkmate) playSound('game-end');
-                        else if (bot.is_check) playSound('move-check');
-                        else if (bot.is_capture) playSound('capture');
-                        else if (bot.from === 'e8' && (bot.to === 'g8' || bot.to === 'c8')) playSound('castle');
-                        else playSound('move');
-                    }, 225);
-                }
-                fetchGameState(gameId);
-            }, 600);
-
-        } catch (err) {
+                setTimeout(() => {
+                    // BOT HANGOK
+                    if (res.data.is_checkmate) playSound('game-end');
+                    else if (bot.is_check) playSound('move-check');
+                    else if (bot.is_capture) playSound('capture');
+                    // Ha a bot promótál (pl. a FEN-ben megjelenik egy 'q' a szélen)
+                    else if (res.data.new_fen.includes('q') && (bot.to.endsWith('1') || bot.to.endsWith('8'))) {
+                        playSound('promote');
+                    }
+                    else if (bot.from === 'e8' && (bot.to === 'g8' || bot.to === 'c8')) {
+                        playSound('castle');
+                    }
+                    else playSound('move');
+                }, 225);
+            }
+            // Frissítjük a játék állapotát (reason, history, status)
             fetchGameState(gameId);
-        }
-    };
+        }, 600);
+
+    } catch (err) {
+        console.error("Move error:", err);
+        fetchGameState(gameId); // Hiba esetén szinkronizálunk a szerverrel
+    }
+};
 
     const resetGame = useCallback(() => {
         localStorage.removeItem('chessGameId');
@@ -229,6 +263,6 @@ const handleResign = async () => {
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging, 
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset, 
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign, 
-        executeMove, playSound, token, API_BASE, resetGame, reason, setReason
+        executeMove, playSound, token, API_BASE, resetGame, reason, setReason, pendingPromotion, setPendingPromotion
     };
 };

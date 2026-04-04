@@ -303,32 +303,126 @@ def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
     
 @router.post("/move")
 def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    # ... (board és user_move kódod változatlan)
+    game_uuid = uuid.UUID(data.get("game_id"))
+    board = rebuild_board(game_uuid, db)
+    move_uci = data.get("move") # Például: "e2e4" vagy promótálásnál "e7e8q"
     
-    # Megkeressük az utolsó lépést, hogy tudjuk, mihez képest mérjük az időt
-    last_move_record = db.query(models.Move).filter(models.Move.game_id == game_uuid).order_by(models.Move.move_number.desc()).first()
-    
-    # 1. JÁTÉKOS LÉPÉSE mentése
-    user_move_record = models.Move(
-        game_id=game_uuid, 
-        move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
-        notation=user_move_san, 
-        fen_before=board.fen()
-    )
-    db.add(user_move_record)
-    db.commit()
+    def get_game_over_details(b):
+        """Meghatározza a játék végének pontos okát és státuszát."""
+        if b.is_checkmate():
+            # JAVÍTÁS: Ha matt van, az a játékos vesztett, akinek a köre jönne (b.turn).
+            # Ha b.turn == chess.WHITE (True), akkor a Fehér kapott mattot -> Fekete nyert.
+            winner = "Black" if b.turn == chess.WHITE else "White"
+            return models.GameStatus.checkmate, f"{winner} wins by checkmate"
+        
+        if b.is_stalemate():
+            return models.GameStatus.draw, "Draw by stalemate"
+        
+        if b.is_insufficient_material():
+            return models.GameStatus.draw, "Draw by insufficient material"
+        
+        if b.can_claim_threefold_repetition():
+            return models.GameStatus.draw, "Draw by threefold repetition"
+        
+        if b.can_claim_fifty_moves():
+            return models.GameStatus.draw, "Draw by 50-move rule"
+            
+        if b.is_fivefold_repetition():
+            return models.GameStatus.draw, "Draw by fivefold repetition"
+            
+        if b.is_seventyfive_moves():
+            return models.GameStatus.draw, "Draw by 75-move rule"
 
-    # 2. BOT LÉPÉSE (Mérjük a stockfish gondolkodási idejét is)
-    if not board.is_game_over():
-        start_bot_time = time.time() # Bot kezd
-        # ... (stockfish engine hívásod változatlan) ...
-        bot_thinking_time = time.time() - start_bot_time 
+        return models.GameStatus.ongoing, None
 
-        bot_move_record = models.Move(
+    try:
+        # --- 1. JÁTÉKOS LÉPÉSE ---
+        # A Move.from_uci automatikusan kezeli a 4 és 5 karakteres kódokat is.
+        user_move = chess.Move.from_uci(move_uci)
+        
+        # Ellenőrizzük, hogy a lépés szabályos-e
+        if user_move not in board.legal_moves:
+            # Speciális eset: Ha a frontend elfelejtette a promóció jelet, de a lépés csak úgy lenne szabályos
+            promo_move = chess.Move.from_uci(move_uci + "q")
+            if promo_move in board.legal_moves:
+                user_move = promo_move
+            else:
+                raise HTTPException(status_code=400, detail="Illegal move")
+
+        user_move_san = board.san(user_move)
+        user_is_capture = board.is_capture(user_move)
+        user_is_en_passant = board.is_en_passant(user_move)
+        
+        board.push(user_move)
+        user_is_check = board.is_check()
+        
+        # Játékos lépésének mentése az adatbázisba
+        user_move_record = models.Move(
             game_id=game_uuid, 
             move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
-            notation=stock_san, 
+            notation=user_move_san, 
             fen_before=board.fen()
         )
-        db.add(bot_move_record)
+        db.add(user_move_record)
         db.commit()
+
+        # --- 2. BOT VÁLASZA (Csak ha a játékos lépése után nem lett vége) ---
+        stock_san, m_from, m_to = "", "", ""
+        bot_is_capture = False
+        bot_is_check = False
+        
+        if not board.is_game_over():
+            engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+            result = engine_proc.play(board, chess.engine.Limit(time=1.0))
+            
+            m_from = chess.square_name(result.move.from_square)
+            m_to = chess.square_name(result.move.to_square)
+            stock_san = board.san(result.move)
+            bot_is_capture = board.is_capture(result.move)
+            
+            board.push(result.move)
+            bot_is_check = board.is_check()
+            engine_proc.quit()
+
+            # Bot lépésének mentése az adatbázisba
+            bot_move_record = models.Move(
+                game_id=game_uuid, 
+                move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+                notation=stock_san, 
+                fen_before=board.fen()
+            )
+            db.add(bot_move_record)
+            db.commit()
+
+        # --- 3. VÉGSŐ ÁLLAPOT ELLENŐRZÉSE ---
+        final_status, reason = get_game_over_details(board)
+        
+        # Ha vége a játéknak, frissítjük a Game táblát is
+        if final_status != models.GameStatus.ongoing:
+            game_record = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+            if game_record:
+                game_record.status = final_status
+                db.commit()
+
+        return {
+            "new_fen": board.fen(),
+            "is_game_over": final_status != models.GameStatus.ongoing,
+            "status": final_status.value,
+            "reason": reason,
+            "user_move": {
+                "is_capture": user_is_capture, 
+                "is_check": user_is_check,
+                "is_en_passant": user_is_en_passant
+            },
+            "bot_move": {
+                "from": m_from, 
+                "to": m_to, 
+                "is_capture": bot_is_capture, 
+                "is_check": bot_is_check
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Hiba a move végponton: {e}")
+        raise HTTPException(status_code=400, detail=str(e))

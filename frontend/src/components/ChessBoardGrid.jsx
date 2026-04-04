@@ -12,8 +12,9 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     const { 
         fen, selectedSquare, lastMove, validMoves, isDragging, 
         hoverSquare, mousePos, isAlert, status, 
-        viewIndex, getSquareName 
-    } = gameLogic;
+        viewIndex, getSquareName,
+        pendingPromotion, setPendingPromotion, executeMove // Hookból jönnek
+    } = gameLogic;;
 
     let whiteKingSquare = null;
     try {
@@ -135,6 +136,44 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     return (
         <div id="chess-board" className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative z-0">
             {boardCells}
+            {/* PROMÓTÁLÁS VÁLASZTÓ PANEL */}
+            <AnimatePresence>
+                {pendingPromotion && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute z-5000 bg-white rounded-lg shadow-2xl border border-gray-300 flex flex-col overflow-hidden"
+                        style={{
+                            // Kiszámoljuk az oszlopot (a=0, h=7)
+                            left: `${(pendingPromotion.to.charCodeAt(0) - 97) * 12.5}%`,
+                            top: pendingPromotion.to.endsWith('8') ? '0' : 'auto',
+                            bottom: pendingPromotion.to.endsWith('1') ? '0' : 'auto',
+                            width: '12.5%', 
+                        }}
+                    >
+                        {['q', 'n', 'r', 'b'].map((type) => (
+                            <button 
+                                key={type}
+                                onClick={() => executeMove(pendingPromotion.from, pendingPromotion.to, type)}
+                                className="w-full aspect-square hover:bg-gray-100 flex items-center justify-center border-b border-gray-100 transition-colors p-1"
+                            >
+                                <img 
+                                    src={`/assets/pieces/white_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} 
+                                    alt={type}
+                                    className="w-10 h-10 object-contain"
+                                />
+                            </button>
+                        ))}
+                        <button 
+                            onClick={() => setPendingPromotion(null)}
+                            className="w-full h-8 bg-gray-50 hover:bg-gray-200 text-gray-400 flex items-center justify-center transition-colors"
+                        >
+                            <i className="fas fa-times text-xs"></i>
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <AnimatePresence>
                 {isDragging && draggedPieceData && (

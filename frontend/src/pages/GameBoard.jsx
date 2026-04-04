@@ -85,64 +85,6 @@ const GameBoard = () => {
         }
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playNavigationSound]);
 
-const handleMouseDown = async (e, row, col) => {
-    // 1. LÉPÉSEK TILTÁSA: Ha nem "ongoing" (tehát resigned vagy checkmate), 
-    // vagy ha éppen nem az élő állást nézzük (viewIndex !== -1), akkor ne csináljon semmit.
-    if (status !== "ongoing" || viewIndex !== -1) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    setDragOffset({
-        x: e.clientX - (rect.left + rect.width / 2),
-        y: e.clientY - (rect.top + rect.height / 2)
-    });
-    setMousePos({ x: e.clientX, y: e.clientY });
-
-    // Biztonsági ellenőrzés a gameId-re
-    if (!gameId || gameId === "null") return;
-    
-    const square = getSquareName(row, col);
-
-    // Tábla aktuális állásának feldolgozása a FEN-ből
-    const pieces = fen.split(' ')[0].split('/').map(r => {
-        const line = [];
-        for (let char of r) {
-            if (isNaN(char)) line.push(char);
-            else for (let i = 0; i < parseInt(char); i++) line.push(null);
-        }
-        return line;
-    });
-    const piece = pieces[row] ? pieces[row][col] : null;
-
-    // Ha már ki volt választva egy mező, és egy érvényes célmezőre kattintunk (Move végrehajtása)
-    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-        await gameLogic.executeMove(selectedSquare, square);
-        return;
-    }
-
-    // Új bábu kijelölése (Csak ha a saját bábunk - nagybetűs a FEN-ben)
-    if (piece && piece === piece.toUpperCase()) {
-        setIsDragging(true);
-        setHoverSquare(square);
-        
-        if (selectedSquare === square) return;
-        setSelectedSquare(square);
-
-        try {
-            const res = await axios.post(`${API_BASE}/get-valid-moves`,
-                { game_id: gameId, square: square },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            setValidMoves(res.data.valid_moves || []);
-        } catch (err) {
-            setValidMoves([]);
-        }
-    } else {
-        // Ha üres mezőre vagy ellenfél bábujára kattintunk, töröljük a kijelölést
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setHoverSquare(null);
-    }
-};
 
     const handleMouseUp = async (row, col) => {
         if (!isDragging) return;
@@ -182,22 +124,60 @@ const handleMouseDown = async (e, row, col) => {
         initialize();
     }, [token]);
 
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (isDragging) {
-                setMousePos({ x: e.clientX, y: e.clientY });
-                const board = document.getElementById('chess-board')?.getBoundingClientRect();
-                if (board) {
-                    const col = Math.floor((e.clientX - board.left) / (board.width / 8));
-                    const row = Math.floor((e.clientY - board.top) / (board.height / 8));
-                    if (col >= 0 && col < 8 && row >= 0 && row < 8) setHoverSquare(getSquareName(row, col));
-                    else setHoverSquare(null);
-                }
+   const handleMouseDown = async (e, row, col) => {
+    // 1. LÉPÉSEK TILTÁSA: Ha nem ongoing vagy épp visszanézzük a múltat, ne történjen semmi.
+    if (status !== "ongoing" || viewIndex !== -1) return;
+
+    // Biztonsági ellenőrzés
+    if (!gameId || gameId === "null") return;
+
+    const square = getSquareName(row, col);
+
+    // FEN feldolgozása a bábu ellenőrzéséhez
+    const pieces = fen.split(' ')[0].split('/').map(r => {
+        const line = [];
+        for (let char of r) {
+            if (isNaN(char)) line.push(char);
+            else for (let i = 0; i < parseInt(char); i++) line.push(null);
+        }
+        return line;
+    });
+    const piece = pieces[row] ? pieces[row][col] : null;
+
+    // HA MÁR KI VOLT VÁLASZTVA EGY MEZŐ, és egy érvényes célmezőre kattintunk
+    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
+        await gameLogic.executeMove(selectedSquare, square);
+        return;
+    }
+
+    // ÚJ BÁBU MEGFOGÁSA (Csak fehér bábu: nagybetűs a FEN-ben)
+    if (piece && piece === piece.toUpperCase()) {
+        // AZONNAL beállítjuk a pozíciót, hogy a ChessBoardGrid tudja, hol jelenítse meg a lebegő bábut
+        setMousePos({ x: e.clientX, y: e.clientY });
+        
+        setIsDragging(true);
+        setHoverSquare(square);
+        
+        if (selectedSquare !== square) {
+            setSelectedSquare(square);
+            // Érvényes lépések lekérése
+            try {
+                const res = await axios.post(`${API_BASE}/get-valid-moves`,
+                    { game_id: gameId, square: square },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setValidMoves(res.data.valid_moves || []);
+            } catch (err) {
+                setValidMoves([]);
             }
-        };
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, [isDragging, getSquareName, setMousePos, setHoverSquare]);
+        }
+    } else {
+        // Ha üres mezőre vagy feketére kattintunk
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
+    }
+};
 
     useEffect(() => {
         const handleKeyDown = (e) => {
