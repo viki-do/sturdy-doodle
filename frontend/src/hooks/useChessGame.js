@@ -20,8 +20,8 @@ export const useChessGame = () => {
 
     const userId = localStorage.getItem('chessUserId');
     const token = localStorage.getItem('chessToken');
+    const [reason, setReason] = useState(""); // ÚJ STATE
 
-    // --- HANG LEJÁTSZÓ SEGÉDFÜGGVÉNY ---
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
         audio.play().catch(err => console.log(`Audio error: ${soundName}`));
@@ -33,25 +33,45 @@ export const useChessGame = () => {
     };
 
     const fetchGameState = useCallback(async (id) => {
-        if (!id || id === "null" || !token) return;
-        try {
-            const res = await axios.get(`${API_BASE}/game/${id}/history`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (res.data.history) {
-                setGameId(id);
-                localStorage.setItem('chessGameId', id);
-                setHistory(res.data.history);
-                setStatus("ongoing"); 
-                setViewIndex(-1); 
-                if (res.data.history.length > 0) {
-                    const latest = res.data.history[res.data.history.length - 1];
-                    setFen(latest.fen);
-                    if (latest.from && latest.to) setLastMove({ from: latest.from, to: latest.to });
+    if (!id || id === "null" || !token) return;
+    try {
+        const res = await axios.get(`${API_BASE}/game/${id}/history`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (res.data.history) {
+            // 1. Alapadatok beállítása
+            setGameId(id);
+            localStorage.setItem('chessGameId', id);
+            setHistory(res.data.history);
+            
+            // 2. Státusz frissítése a szerver válasza alapján (ongoing, resigned, checkmate, draw, stb.)
+            if (res.data.status) {
+                setStatus(res.data.status);
+            }
+
+            // 3. A részletes indoklás beállítása a Popup számára
+            // (Ezt a state-et ne felejtsd el definiálni a hook elején: const [reason, setReason] = useState("");)
+            if (res.data.reason) {
+                setReason(res.data.reason);
+            } else {
+                setReason(""); // Tisztítás, ha még tart a játék
+            }
+            
+            // 4. Tábla pozíció frissítése az utolsó lépésre
+            setViewIndex(-1); 
+            if (res.data.history.length > 0) {
+                const latest = res.data.history[res.data.history.length - 1];
+                setFen(latest.fen);
+                if (latest.from && latest.to) {
+                    setLastMove({ from: latest.from, to: latest.to });
                 }
             }
-        } catch (err) { console.error(err); }
-    }, [token, API_BASE]);
+        }
+    } catch (err) { 
+        console.error("Hiba a játékállapot lekérésekor:", err); 
+    }
+}, [token, API_BASE]);
 
     const startNewGame = useCallback(async () => {
         try {
@@ -67,7 +87,7 @@ export const useChessGame = () => {
             setHistory([]);
             setViewIndex(-1);
             setStatus("ongoing");
-            playSound('game-start'); // ÚJ JÁTÉK HANG
+            playSound('game-start');
         } catch (err) { 
             console.error("Hiba az új játék indításakor:", err);
         }
@@ -79,14 +99,12 @@ export const useChessGame = () => {
 
         if (!moveAttempt) return;
 
-        // 1. Optimista frissítés az animációhoz
         setFen(chess.fen());
         setLastMove({ from, to });
         setSelectedSquare(null);
         setValidMoves([]);
         setIsDragging(false);
 
-        // 2. SZINKRONIZÁLT HANG (225ms késleltetés a 0.2s animációhoz)
         setTimeout(() => {
             if (chess.isCheckmate()) playSound('checkmate');
             else if (chess.isStalemate() || chess.isDraw()) playSound('stalemate');
@@ -103,14 +121,12 @@ export const useChessGame = () => {
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
-            // 3. Bot válasza (kicsit később, hogy ne vágjanak egymás szavába)
             setTimeout(() => {
                 const bot = res.data.bot_move;
                 if (bot && bot.from) {
                     setFen(res.data.new_fen);
                     setLastMove({ from: bot.from, to: bot.to });
 
-                    // Bot hangja is szinkronizálva az ő 0.2s-os animációjához
                     setTimeout(() => {
                         if (res.data.is_checkmate) playSound('game-end');
                         else if (bot.is_check) playSound('move-check');
@@ -127,30 +143,44 @@ export const useChessGame = () => {
         }
     };
 
-    const handleResign = async () => {
-    if (!window.confirm("Biztosan feladod a játszmát?")) return;
-    
-    const currentId = gameId;
-    playSound('game-end'); 
-    setStatus("resigned"); // Csak a státuszt váltjuk át
-    setSelectedSquare(null);
-    setValidMoves([]);
+    const resetGame = useCallback(() => {
+        localStorage.removeItem('chessGameId');
+        setGameId(null);
+        setHistory([]);
+        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setStatus("ongoing");
+        setViewIndex(-1);
+        setLastMove({ from: null, to: null });
+    }, []);
 
-    try {
-        // Elküldjük a szervernek a feladást
-        await axios.post(`${API_BASE}/resign-game`, 
-            { game_id: currentId }, 
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
+const handleResign = async () => {
+        if (!window.confirm("Biztosan feladod a játszmát?")) return;
         
-        // Frissítjük a játékállapotot, hogy a history és a FEN 
-        // tartalmazza a lezárt állapotot, de NE tűnjön el semmi
-        await fetchGameState(currentId);
+        const currentId = gameId;
+        playSound('game-end'); 
+        
+        localStorage.removeItem('chessGameId');
+        
+        // Optimista UI frissítés
+        setStatus("resigned");
+        setReason("Black wins by resignation");
 
-    } catch (err) { 
-        console.error("Hiba a feladás során:", err); 
-    }
-};
+        try {
+            await axios.post(`${API_BASE}/resign-game`, 
+                { game_id: currentId }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            // Lekérjük a végleges állapotot a szervertől
+            await fetchGameState(currentId);
+            
+        } catch (err) { 
+            console.error("Hiba a feladás során:", err);
+            setStatus("resigned");
+            setReason("Black wins by resignation");
+        }
+    };
+
     useEffect(() => {
         let interval;
         if (gameId && status === "ongoing") {
@@ -161,6 +191,12 @@ export const useChessGame = () => {
                     });
 
                     if (res.data.history && res.data.history.length > 0) {
+                        // Ha közben a státusz megváltozott (pl. feladtuk), állítsuk le
+                        if (res.data.status && res.data.status !== "ongoing") {
+                            setStatus(res.data.status);
+                            clearInterval(interval);
+                        }
+
                         if (res.data.history.length !== history.length) {
                             const newHistory = res.data.history;
                             const latestMove = newHistory[newHistory.length - 1];
@@ -168,12 +204,10 @@ export const useChessGame = () => {
 
                             setHistory(newHistory);
 
-                            // CSAK BOT LÉPÉSNÉL (Páros history hossz)
                             if (newHistory.length % 2 === 0 && latestMove.fen !== fen) {
                                 setFen(latestMove.fen);
                                 setLastMove({ from: latestMove.from, to: latestMove.to });
 
-                                // Polling alatti hang szinkron
                                 setTimeout(() => {
                                     if (m.includes('#')) playSound('checkmate');
                                     else if (m.includes('+')) playSound('move-check');
@@ -195,6 +229,6 @@ export const useChessGame = () => {
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging, 
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset, 
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign, 
-        executeMove, playSound, token, API_BASE
+        executeMove, playSound, token, API_BASE, resetGame, reason, setReason
     };
 };

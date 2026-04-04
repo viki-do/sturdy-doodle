@@ -1,24 +1,47 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import MoveListPanel from '../components/MoveListPanel';
 import PlaySelectionPanel from '../components/PlaySelectionPanel';
+import BotSelectionPanel from '../components/BotSelectionPanel';
 import { useChessGame } from '../hooks/useChessGame';
 import axios from 'axios';
 import { Chess } from 'chess.js';
 
 const GameBoard = () => {
     const gameLogic = useChessGame();
-    
-    const { 
+    const [isSelectingBot, setIsSelectingBot] = useState(false);
+    const [delayedShowPopup, setDelayedShowPopup] = useState(false);
+
+    const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
-        token, gameId, setGameId, setFen, setLastMove, setViewIndex, 
-        getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare, 
+        token, gameId, setGameId, setFen, setLastMove, setViewIndex,
+        getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
-        setDragOffset, setMousePos, playSound
+        setDragOffset, setMousePos, playSound, reason
     } = gameLogic;
 
     const isGameActive = !!gameId && gameId !== "null";
+    const isUIActive = !!gameId && gameId !== "null" && status === "ongoing";
+    const isReviewing = status === "resigned" || status === "checkmate";
+
+    // Popup időzítő a játék végén
+   useEffect(() => {
+    let timer;
+    // Csak akkor indítjuk a timert, ha vége a játéknak ÉS még nem látszik a popup
+    if (status !== "ongoing" && isGameActive) {
+        timer = setTimeout(() => {
+            setDelayedShowPopup(true);
+        }, 800);
+    } else {
+        // Ha újra "ongoing" lesz (új játék), azonnal tüntessük el
+        setDelayedShowPopup(false);
+    }
+
+    return () => {
+        if (timer) clearTimeout(timer);
+    };
+}, [status, isGameActive]); // Ide nem kötelező a setDelayedShowPopup, de a hiba eltűnik tőle
 
     const playNavigationSound = useCallback((notation) => {
         if (!notation || notation === "start") return;
@@ -43,11 +66,10 @@ const GameBoard = () => {
             }
             return;
         }
+
         const move = history[index];
         if (!move) return;
-        
         playNavigationSound(move.m);
-
         if (isWhiteOnly) {
             const tempChess = new Chess(move.fen);
             const undone = tempChess.undo();
@@ -63,57 +85,64 @@ const GameBoard = () => {
         }
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playNavigationSound]);
 
-    const handleMouseDown = async (e, row, col) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({
-            x: e.clientX - (rect.left + rect.width / 2),
-            y: e.clientY - (rect.top + rect.height / 2)
-        });
-        setMousePos({ x: e.clientX, y: e.clientY });
+const handleMouseDown = async (e, row, col) => {
+    // 1. LÉPÉSEK TILTÁSA: Ha nem "ongoing" (tehát resigned vagy checkmate), 
+    // vagy ha éppen nem az élő állást nézzük (viewIndex !== -1), akkor ne csináljon semmit.
+    if (status !== "ongoing" || viewIndex !== -1) return;
 
-        if (!gameId || gameId === "null" || viewIndex !== -1) return;
-        const square = getSquareName(row, col);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOffset({
+        x: e.clientX - (rect.left + rect.width / 2),
+        y: e.clientY - (rect.top + rect.height / 2)
+    });
+    setMousePos({ x: e.clientX, y: e.clientY });
 
-        const pieces = fen.split(' ')[0].split('/').map(r => {
-            const line = [];
-            for (let char of r) {
-                if (isNaN(char)) line.push(char);
-                else for (let i = 0; i < parseInt(char); i++) line.push(null);
-            }
-            return line;
-        });
-        const piece = pieces[row] ? pieces[row][col] : null;
+    // Biztonsági ellenőrzés a gameId-re
+    if (!gameId || gameId === "null") return;
+    
+    const square = getSquareName(row, col);
 
-        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            await gameLogic.executeMove(selectedSquare, square);
-            return;
+    // Tábla aktuális állásának feldolgozása a FEN-ből
+    const pieces = fen.split(' ')[0].split('/').map(r => {
+        const line = [];
+        for (let char of r) {
+            if (isNaN(char)) line.push(char);
+            else for (let i = 0; i < parseInt(char); i++) line.push(null);
         }
+        return line;
+    });
+    const piece = pieces[row] ? pieces[row][col] : null;
 
-        if (piece && status === "ongoing" && piece === piece.toUpperCase()) {
-            setIsDragging(true);
-            setHoverSquare(square);
+    // Ha már ki volt választva egy mező, és egy érvényes célmezőre kattintunk (Move végrehajtása)
+    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
+        await gameLogic.executeMove(selectedSquare, square);
+        return;
+    }
 
-            if (selectedSquare === square) {
-                return; 
-            }
+    // Új bábu kijelölése (Csak ha a saját bábunk - nagybetűs a FEN-ben)
+    if (piece && piece === piece.toUpperCase()) {
+        setIsDragging(true);
+        setHoverSquare(square);
+        
+        if (selectedSquare === square) return;
+        setSelectedSquare(square);
 
-            setSelectedSquare(square);
-
-            try {
-                const res = await axios.post(`${API_BASE}/get-valid-moves`, 
-                    { game_id: gameId, square: square }, 
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
-                setValidMoves(res.data.valid_moves || []);
-            } catch (err) {
-                setValidMoves([]);
-            }
-        } else {
-            setSelectedSquare(null);
+        try {
+            const res = await axios.post(`${API_BASE}/get-valid-moves`,
+                { game_id: gameId, square: square },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setValidMoves(res.data.valid_moves || []);
+        } catch (err) {
             setValidMoves([]);
-            setHoverSquare(null);
         }
-    };
+    } else {
+        // Ha üres mezőre vagy ellenfél bábujára kattintunk, töröljük a kijelölést
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
+    }
+};
 
     const handleMouseUp = async (row, col) => {
         if (!isDragging) return;
@@ -143,7 +172,7 @@ const GameBoard = () => {
             try {
                 const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
                 if (res.data.game_id && res.data.game_id !== "null") {
-                    setGameId(res.data.game_id); 
+                    setGameId(res.data.game_id);
                     await fetchGameState(res.data.game_id);
                 } else {
                     setGameId(null);
@@ -194,108 +223,155 @@ const GameBoard = () => {
         return icons[text[0]] ? <span className="flex items-center"><span className="text-[1.3em] mr-0.5 leading-none">{icons[text[0]]}</span>{text.substring(1)}</span> : text;
     };
 
-
-return (
-    <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none">
-        
-        {/* 1. EVALUATION BAR - Fix magasság a 704px-es táblához */}
-        <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end overflow-hidden self-center border border-chess-bg shrink-0">
-            <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
-        </div>
-
-        {/* 2. TÁBLA SZEKCIÓ */}
-        <div className="flex flex-col justify-center items-center h-full shrink-0">
+    return (
+        <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
             
-            {/* OPPONENT INFO (BLACK) - Szélesség a 704px-es táblához igazítva */}
-            <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                    <i className="fas fa-user text-[#808080] text-xl"></i>
-                </div>
-                <div className="flex flex-col leading-tight">
-                    <span className="text-[#bab9b8] font-bold text-[14px]">Opponent</span>
-                    <div className="h-4"></div>
-                </div>
+            {/* 1. EVALUATION BAR */}
+            <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end overflow-hidden self-center border border-chess-bg shrink-0">
+                <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
             </div>
 
-            {/* A TÁBLA MAGA - Fix 704px (88px * 8) */}
-            <div className="relative shrink-0 p-0 m-0">
-                <div 
-                    id="chess-board" 
-                    className="w-170 h-170 bg-[#2b2b2b]"
-                    style={{ 
-                        pointerEvents: isGameActive ? 'auto' : 'none',
-                        display: 'block'
-                    }}
+            {/* 2. TÁBLA SZEKCIÓ */}
+            <div className="flex flex-col justify-center items-center h-full shrink-0">
+                {/* OPPONENT INFO */}
+                <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
+                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                        <i className="fas fa-user text-[#808080] text-xl"></i>
+                    </div>
+                    <div className="flex flex-col leading-tight">
+                        <span className="text-[#bab9b8] font-bold text-[14px]">Opponent</span>
+                        <div className="h-4"></div>
+                    </div>
+                </div>
+
+               {/* BOARD */}
+<div className="relative shrink-0 p-0 m-0">
+    <div 
+        id="chess-board" 
+        className="w-170 h-170 bg-[#2b2b2b] relative"
+        style={{ 
+            // Csak akkor engedünk egeret a táblára, ha tart a játék
+            pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none',
+            display: 'block'
+        }}
+    >
+        <ChessBoardGrid 
+            gameLogic={gameLogic} 
+            onMouseDown={handleMouseDown} 
+            onMouseUp={handleMouseUp} 
+        />
+        
+        {/* EXTRA BIZTONSÁGI RÉTEG - Csak akkor látszik, ha NINCS popup */}
+        {status !== "ongoing" && !delayedShowPopup && (
+            <div 
+                className="absolute inset-0 z-4000 bg-transparent cursor-default" 
+                onClick={(e) => e.stopPropagation()} 
+            />
+        )}
+
+        {/* 4. GAME OVER POPUP */}
+        <AnimatePresence>
+    {delayedShowPopup && (
+        <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/40 flex items-center justify-center z-5000 rounded-sm pointer-events-auto"
+        >
+            <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                // Adtam hozzá relative-ot a pozicionáláshoz
+                className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-[0_20px_50px_rgba(0,0,0,0.6)] max-w-sm w-85 relative"
+            >
+                {/* BEZÁRÓ GOMB (X) */}
+                <button 
+                    onClick={() => setDelayedShowPopup(false)}
+                    className="absolute top-4 right-5 text-[#989795] hover:text-white transition-colors text-xl"
                 >
-                    <ChessBoardGrid 
-                        gameLogic={gameLogic} 
-                        onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp} 
-                    />
-                </div>
+                    <i className="fas fa-times"></i>
+                </button>
+
+                <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">
+                    {status === "checkmate" ? "Checkmate" : 
+                     status === "resigned" ? "Resigned" : 
+                     status === "draw" || status === "stalemate" ? "Draw" : "Game Over"}
+                </h1>
                 
-                <AnimatePresence>
-                    {status !== "ongoing" && isGameActive && (
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.9 }} 
-                            animate={{ opacity: 1, scale: 1 }} 
-                            exit={{ opacity: 0, scale: 0.9 }}
-                            className="absolute inset-0 bg-black/60 flex items-center justify-center z-1000"
-                        >
-                            <div className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl">
-                                <h1 className="text-4xl font-bold text-white mb-4 uppercase tracking-widest">
-                                    {status === "checkmate" ? "Checkmate" : "Game Over"}
-                                </h1>
-                                <button 
-                                    onClick={startNewGame} 
-                                    className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
-                                >
-                                    New Game
-                                </button>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+                <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">
+                    {reason ? reason : (status === "ongoing" ? "" : "Game Over")}
+                </p>
+                
+                <div className="flex flex-col gap-3">
+                    <button 
+                        onClick={async () => {
+                            setDelayedShowPopup(false);
+                            await startNewGame();
+                            window.location.reload(); 
+                        }} 
+                        className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95"
+                    >
+                        New Game
+                    </button>
+                    <button 
+                        onClick={() => setDelayedShowPopup(false)} 
+                        className="w-full py-3 bg-transparent text-[#bab9b8] rounded-xl text-lg font-bold hover:text-white transition-colors cursor-pointer"
+                    >
+                        Review Game
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>
+    )}
+</AnimatePresence>
+    </div>
+</div>
 
-            {/* YOU INFO (WHITE) - Szélesség a 704px-es táblához igazítva */}
-            <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                    <i className="fas fa-user text-[#808080] text-xl"></i>
-                </div>
-                <div className="flex flex-col leading-tight">
-                    <span className="text-[#bab9b8] font-bold text-[14px]">You</span>
-                    <div className="h-4"></div>
-                </div>
-            </div>
+    {/* YOU INFO */}
+    <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
+        <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+            <i className="fas fa-user text-[#808080] text-xl"></i>
         </div>
-
-      
-        {/* 3. JOBB OLDALI PANEL */}
-        <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
-            {/* LOGIKA: Akkor mutatjuk a MoveListPanel-t, ha:
-            1. Van aktív játék (isGameActive)
-            VAGY
-            2. A státusz jelzi, hogy vége (resigned / checkmate / draw)
-            VAGY
-            3. Van már története a meccsnek (history.length > 1)
-            */}
-            { (isGameActive || status === "resigned" || status === "checkmate" || history.length > 1) ? (
-                <MoveListPanel 
-                    history={history}
-                    viewIndex={viewIndex}
-                    status={status}
-                    goToMove={goToMove}
-                    handleResign={handleResign}
-                    renderNotation={renderNotation}
-                    startNewGame={startNewGame}
-                />
-            ) : (
-                <PlaySelectionPanel onStartGame={startNewGame} />
-            )}
+        <div className="flex flex-col leading-tight">
+            <span className="text-[#bab9b8] font-bold text-[14px]">You</span>
+            <div className="h-4"></div>
         </div>
     </div>
-);
+</div>
+
+            {/* 3. JOBB OLDALI PANEL */}
+            
+            <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
+    {gameId ? (
+        <MoveListPanel 
+            history={history}
+            viewIndex={viewIndex}
+            status={status}
+            goToMove={goToMove}
+            handleResign={handleResign}
+            renderNotation={renderNotation}
+            startNewGame={startNewGame}
+        />
+    ) : isSelectingBot ? (
+        <BotSelectionPanel 
+            onBack={() => setIsSelectingBot(false)} 
+            onSelectBot={(difficulty) => {
+                startNewGame(difficulty);
+                setIsSelectingBot(false);
+            }}
+        />
+    ) : (
+        <PlaySelectionPanel 
+            onStartGame={startNewGame} 
+            onPlayBots={() => setIsSelectingBot(true)}
+        />
+    )}
+</div>
+
+        </div>
+    );
 };
 
 export default GameBoard;
