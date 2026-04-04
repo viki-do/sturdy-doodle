@@ -82,14 +82,14 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     >
                     {/* Számok */}
                     {j === 0 && (
-                        <span className={`absolute top-0.5 left-1 text-[15px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
+                        <span className={`absolute top-0.5 left-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {8 - i}
                         </span>
                     )}
 
                     {/* Betűk */}
                     {i === 7 && (
-                        <span className={`absolute bottom-0.5 right-1 text-[15px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
+                        <span className={`absolute bottom-0.5 right-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'][j]}
                         </span>
                     )}
@@ -115,7 +115,7 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         key={`piece-${sqName}-${piece}`} 
                         src={`/assets/pieces/${piecesMap[piece]}.png`}
                         draggable="false"
-                        className="w-[90%] h-[90%] relative z-40"
+                        className="w-full h-full relative z-40"
                         
                         // --- HAJSZÁLPONTOS 0.20 MÁSODPERC ---
                         initial={false}

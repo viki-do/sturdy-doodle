@@ -20,10 +20,8 @@ const GameBoard = () => {
 
     const isGameActive = !!gameId && gameId !== "null";
 
-    // --- NAVIGÁCIÓS HANGOK ---
     const playNavigationSound = useCallback((notation) => {
         if (!notation || notation === "start") return;
-        // Kicsit várunk a vizuális váltás után a hanggal
         setTimeout(() => {
             if (notation.includes('#')) playSound('checkmate');
             else if (notation.includes('+')) playSound('move-check');
@@ -106,10 +104,7 @@ const GameBoard = () => {
                     { game_id: gameId, square: square }, 
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
-                
-                // Beállítjuk az érvényes lépéseket (pöttyöket)
                 setValidMoves(res.data.valid_moves || []);
-                
             } catch (err) {
                 setValidMoves([]);
             }
@@ -133,7 +128,7 @@ const GameBoard = () => {
         if (validMoves.includes(target)) {
             await gameLogic.executeMove(selectedSquare, target);
         } else {
-            playSound('illegal'); // ILLEGAL HANG
+            playSound('illegal');
             setIsAlert(true);
             setTimeout(() => setIsAlert(false), 400);
             setSelectedSquare(null);
@@ -199,64 +194,108 @@ const GameBoard = () => {
         return icons[text[0]] ? <span className="flex items-center"><span className="text-[1.3em] mr-0.5 leading-none">{icons[text[0]]}</span>{text.substring(1)}</span> : text;
     };
 
-    return (
-    <div className="flex justify-center items-start p-10 gap-10 bg-bg-primary min-h-screen w-full">
-        <div className="relative">
-            <div 
-                id="chess-board" 
-                // ELTÁVOLÍTVA: opacity-60, opacity-100 és transition-opacity
-                className="w-[720px] h-[720px] overflow-hidden"
-                // Megtartva: pointer-events, hogy ne lehessen interakcióba lépni vele választás előtt
-                style={{ pointerEvents: isGameActive ? 'auto' : 'none' }}
-            >
-                <ChessBoardGrid 
-                    gameLogic={gameLogic} 
-                    onMouseDown={handleMouseDown} 
-                    onMouseUp={handleMouseUp} 
-                />
-            </div>
-            
-            <AnimatePresence>
-                {status !== "ongoing" && isGameActive && (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }} 
-                        animate={{ opacity: 1, scale: 1 }} 
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-xl z-[1000]"
-                    >
-                        <div className="bg-[#262421] p-10 rounded-3xl text-center border border-border-color shadow-2xl">
-                            <h1 className="text-4xl font-bold text-white mb-4">
-                                {status === "checkmate" ? "Checkmate!" : "Game Over"}
-                            </h1>
-                            <button 
-                                onClick={startNewGame} 
-                                className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
-                            >
-                                New Game
-                            </button>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+
+return (
+    <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none">
+        
+        {/* 1. EVALUATION BAR - Fix magasság a 704px-es táblához */}
+        <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end overflow-hidden self-center border border-chess-bg shrink-0">
+            <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
         </div>
 
-            <div className="w-[450px]">
-                {isGameActive ? (
-                    <MoveListPanel 
-                        history={history}
-                        viewIndex={viewIndex}
-                        status={status}
-                        goToMove={goToMove}
-                        handleResign={handleResign}
-                        renderNotation={renderNotation}
-                        startNewGame={startNewGame}
+        {/* 2. TÁBLA SZEKCIÓ */}
+        <div className="flex flex-col justify-center items-center h-full shrink-0">
+            
+            {/* OPPONENT INFO (BLACK) - Szélesség a 704px-es táblához igazítva */}
+            <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
+                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                    <i className="fas fa-user text-[#808080] text-xl"></i>
+                </div>
+                <div className="flex flex-col leading-tight">
+                    <span className="text-[#bab9b8] font-bold text-[14px]">Opponent</span>
+                    <div className="h-4"></div>
+                </div>
+            </div>
+
+            {/* A TÁBLA MAGA - Fix 704px (88px * 8) */}
+            <div className="relative shrink-0 p-0 m-0">
+                <div 
+                    id="chess-board" 
+                    className="w-170 h-170 bg-[#2b2b2b]"
+                    style={{ 
+                        pointerEvents: isGameActive ? 'auto' : 'none',
+                        display: 'block'
+                    }}
+                >
+                    <ChessBoardGrid 
+                        gameLogic={gameLogic} 
+                        onMouseDown={handleMouseDown} 
+                        onMouseUp={handleMouseUp} 
                     />
-                ) : (
-                    <PlaySelectionPanel onStartGame={startNewGame} />
-                )}
+                </div>
+                
+                <AnimatePresence>
+                    {status !== "ongoing" && isGameActive && (
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.9 }} 
+                            animate={{ opacity: 1, scale: 1 }} 
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            className="absolute inset-0 bg-black/60 flex items-center justify-center z-1000"
+                        >
+                            <div className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl">
+                                <h1 className="text-4xl font-bold text-white mb-4 uppercase tracking-widest">
+                                    {status === "checkmate" ? "Checkmate" : "Game Over"}
+                                </h1>
+                                <button 
+                                    onClick={startNewGame} 
+                                    className="px-8 py-3 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-colors"
+                                >
+                                    New Game
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* YOU INFO (WHITE) - Szélesség a 704px-es táblához igazítva */}
+            <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
+                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                    <i className="fas fa-user text-[#808080] text-xl"></i>
+                </div>
+                <div className="flex flex-col leading-tight">
+                    <span className="text-[#bab9b8] font-bold text-[14px]">You</span>
+                    <div className="h-4"></div>
+                </div>
             </div>
         </div>
-    );
+
+      
+        {/* 3. JOBB OLDALI PANEL */}
+        <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
+            {/* LOGIKA: Akkor mutatjuk a MoveListPanel-t, ha:
+            1. Van aktív játék (isGameActive)
+            VAGY
+            2. A státusz jelzi, hogy vége (resigned / checkmate / draw)
+            VAGY
+            3. Van már története a meccsnek (history.length > 1)
+            */}
+            { (isGameActive || status === "resigned" || status === "checkmate" || history.length > 1) ? (
+                <MoveListPanel 
+                    history={history}
+                    viewIndex={viewIndex}
+                    status={status}
+                    goToMove={goToMove}
+                    handleResign={handleResign}
+                    renderNotation={renderNotation}
+                    startNewGame={startNewGame}
+                />
+            ) : (
+                <PlaySelectionPanel onStartGame={startNewGame} />
+            )}
+        </div>
+    </div>
+);
 };
 
 export default GameBoard;

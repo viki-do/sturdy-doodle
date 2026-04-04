@@ -128,30 +128,29 @@ export const useChessGame = () => {
     };
 
     const handleResign = async () => {
-        if (!window.confirm("Biztosan feladod a játszmát?")) return;
-        
-        const currentId = gameId;
-        playSound('game-end'); // RESIGN HANG
-        
-        localStorage.removeItem('chessGameId');
-        setGameId(null);
-        setStatus("resigned");
-        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        setLastMove({ from: null, to: null });
-        setHistory([]);
-        setSelectedSquare(null);
-        setValidMoves([]);
-        
-        try {
-            await axios.post(`${API_BASE}/resign-game`, 
-                { game_id: currentId }, 
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-        } catch (err) { 
-            console.error("Hiba a feladás során:", err); 
-        }
-    };
+    if (!window.confirm("Biztosan feladod a játszmát?")) return;
+    
+    const currentId = gameId;
+    playSound('game-end'); 
+    setStatus("resigned"); // Csak a státuszt váltjuk át
+    setSelectedSquare(null);
+    setValidMoves([]);
 
+    try {
+        // Elküldjük a szervernek a feladást
+        await axios.post(`${API_BASE}/resign-game`, 
+            { game_id: currentId }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        // Frissítjük a játékállapotot, hogy a history és a FEN 
+        // tartalmazza a lezárt állapotot, de NE tűnjön el semmi
+        await fetchGameState(currentId);
+
+    } catch (err) { 
+        console.error("Hiba a feladás során:", err); 
+    }
+};
     useEffect(() => {
         let interval;
         if (gameId && status === "ongoing") {

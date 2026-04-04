@@ -18,10 +18,10 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
     return (
-        <div className="w-[450px] h-[720px] bg-[#262421] flex flex-col font-sans border border-[#312e2b] rounded-xl overflow-hidden">
+        <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden">
             
             {/* Felső Navigáció (Play, New Game, stb.) */}
-            <div className="grid grid-cols-4 bg-[#21201d] border-b border-[#1b1a18]">
+            <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
                 <TopTab icon="fa-plus" label="New Game" onClick={startNewGame} />
                 <TopTab icon="fa-th" label="Games" />
@@ -29,7 +29,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
             </div>
 
             {/* Al-navigáció (Moves, Chat, Info) */}
-            <div className="flex bg-[#21201d] text-[13px] font-bold text-[#989795] border-b border-[#1b1a18]">
+            <div className="flex bg-chess-panel-header text-[13px] font-bold text-[#989795] border-b border-[#1b1a18]">
                 <div className="py-3 px-8 border-b-2 border-white text-white cursor-pointer bg-[#262421]">Moves</div>
                 <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Chat</div>
                 <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Info</div>
@@ -80,19 +80,19 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                             <div className="flex-1"></div>
 
                             {/* Time column (Jobb szélre igazítva) */}
-                            <div className="w-16 flex flex-col justify-center pr-3 border-l border-[#312e2b]/30">
-                                <div className="flex items-center justify-end gap-1 leading-none h-[14px] mb-0.5">
+                            <div className="w-16 flex flex-col justify-center pr-3 border-l border-chess-bg/30">
+                                <div className="flex items-center justify-end gap-1 leading-none h-3.5 mb-0.5">
                                     <span className="text-[10px] text-[#989795] font-sans">
                                         {row.white.t > 0 ? `${row.white.t}s` : "0.1s"}
                                     </span>
-                                    <div className="w-[3px] h-3 bg-[#bab9b8] rounded-full opacity-40"></div>
+                                    <div className="w-0.75 h-3 bg-[#bab9b8] rounded-full opacity-40"></div>
                                 </div>
                                 {row.black && (
-                                    <div className="flex items-center justify-end gap-1 leading-none h-[14px]">
+                                    <div className="flex items-center justify-end gap-1 leading-none h-3.5">
                                         <span className="text-[10px] text-[#666] font-sans">
                                             {row.black.t}s
                                         </span>
-                                        <div className="w-[3px] h-3 bg-[#666] rounded-full opacity-40"></div>
+                                        <div className="w-0.75 h-3 bg-[#666] rounded-full opacity-40"></div>
                                     </div>
                                 )}
                             </div>
@@ -103,7 +103,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
         </div>
 
             {/* Navigációs gombok (Sötétebb design) */}
-            <div className="bg-[#21201d] p-3 flex gap-1 border-t border-[#1b1a18]">
+            <div className="bg-chess-panel-header p-3 flex gap-1 border-t border-[#1b1a18]">
                 <NavBtn icon="fa-step-backward" onClick={() => goToMove(0)} active={viewIndex !== 0} />
                 <NavBtn icon="fa-chevron-left" 
                     onClick={() => {
@@ -112,7 +112,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                     }} 
                     active={viewIndex !== 0} 
                 />
-                <div className="flex-1 bg-[#312e2b] rounded flex justify-center items-center cursor-pointer hover:bg-[#3b3835]">
+                <div className="flex-1 bg-chess-bg rounded flex justify-center items-center cursor-pointer hover:bg-[#3b3835]">
                     <i className="fas fa-play text-white text-sm"></i>
                 </div>
                 <NavBtn icon="fa-chevron-right" 
@@ -127,7 +127,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
             </div>
 
             {/* Toolbar: Draw / Resign */}
-            <div className="p-3 bg-[#21201d] flex justify-between items-center text-[#989795] border-t border-[#1b1a18]">
+            <div className="p-3 bg-chess-panel-header flex justify-between items-center text-[#989795] border-t border-[#1b1a18]">
                 <div className="flex gap-4 items-center">
                     <button className="flex items-center gap-2 hover:text-white transition-colors">
                         <i className="fas fa-half-circle text-sm"></i>
@@ -154,7 +154,7 @@ const TopTab = ({ icon, label, active, onClick }) => (
 const NavBtn = ({ icon, onClick, active }) => (
     <button 
         onClick={active ? onClick : undefined}
-        className={`w-14 h-10 rounded bg-[#312e2b] flex justify-center items-center text-[#bab9b8] transition-colors ${active ? 'hover:bg-[#3b3835] cursor-pointer text-white' : 'opacity-40 cursor-not-allowed'}`}
+        className={`w-14 h-10 rounded bg-chess-bg flex justify-center items-center text-[#bab9b8] transition-colors ${active ? 'hover:bg-[#3b3835] cursor-pointer text-white' : 'opacity-40 cursor-not-allowed'}`}
     >
         <i className={`fas ${icon} text-sm`}></i>
     </button>
