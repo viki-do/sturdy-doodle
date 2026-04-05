@@ -1,8 +1,21 @@
 import React from 'react';
 
-const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, renderNotation, startNewGame }) => {
+const MoveListPanel = ({ 
+    history, 
+    viewIndex, 
+    status, 
+    goToMove, 
+    handleResign, 
+    renderNotation, 
+    startNewGame,
+    isPopupClosed,    // Új prop
+    isPopupVisible    // Új prop
+}) => {
     const isOngoing = status === "ongoing";
     const isGameOver = status === "resigned" || status === "checkmate" || status === "draw" || status === "stalemate";
+
+    // CSAK AKKOR MUTATJUK A GOMBOKAT, ha vége a játéknak ÉS a felhasználó bezárta a popupot
+    const showEndGameUI = isGameOver && isPopupClosed && !isPopupVisible;
 
     // --- LOGIKA: Fél-lépések párosítása ---
     const movesOnly = history.filter(m => m.m !== "start");
@@ -17,22 +30,16 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
 
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
-    // --- JAVÍTOTT EREDMÉNY SZÁMÍTÁS ---
+    // --- EREDMÉNY SZÁMÍTÁS ---
     const getResultData = () => {
         if (!isGameOver) return null;
 
-        // Ha feladás történt (Mivel te vagy Fehér, ha feladod, Fekete nyer)
         if (status === "resigned") {
             return { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
         }
 
-        // Ha matt történt
         if (status === "checkmate") {
-            const lastMove = history[history.length - 1];
-            // Ha az utolsó lépést Fehér tette (páratlan sorszám a movesOnly-ban, 
-            // vagy nézzük meg az utolsó elem indexét)
             const isWhiteLast = (movesOnly.length % 2 !== 0);
-            
             if (isWhiteLast) {
                 return { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" };
             } else {
@@ -40,7 +47,6 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
             }
         }
 
-        // Ha döntetlen
         if (status === "draw" || status === "stalemate") {
             return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Agreement/Rule" };
         }
@@ -56,7 +62,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
             {/* Felső Navigáció */}
             <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
-                <TopTab icon="fa-plus" label="New Game" onClick={startNewGame} />
+                <TopTab icon="fa-plus" label="New Game" onClick={() => startNewGame(400)} />
                 <TopTab icon="fa-th" label="Games" />
                 <TopTab icon="fa-users" label="Players" />
             </div>
@@ -97,8 +103,8 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                         );
                     })}
 
-                    {/* DINAMIKUS EREDMÉNY SOR */}
-                    {isGameOver && result && (
+                    {/* DINAMIKUS EREDMÉNY SOR - Csak ha showEndGameUI igaz */}
+                    {showEndGameUI && result && (
                         <div className="mt-4 mx-2 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                             <div className="flex items-center justify-between px-4 py-4 bg-chess-panel-header border border-chess-bg rounded-md shadow-inner">
                                 <div className="flex items-center gap-4">
@@ -125,16 +131,16 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
 
             {/* Alsó vezérlő szekció */}
             <div className="bg-chess-panel-header flex flex-col border-t border-[#1b1a18]">
-                {isGameOver && (
-                    <div className="p-3 border-b border-chess-bg bg-chess-panel-header">
-                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg">
+                {showEndGameUI && (
+                    <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
+                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
                             <i className="fas fa-microscope"></i> Game Review
                         </button>
                         <div className="grid grid-cols-2 gap-2 pt-3">
-                            <button onClick={startNewGame} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px]">
+                            <button onClick={() => startNewGame(400)} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
                                 <i className="fas fa-plus"></i> New Bot
                             </button>
-                            <button onClick={startNewGame} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px]">
+                            <button onClick={() => startNewGame(400)} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
                                 <i className="fas fa-sync-alt"></i> Rematch
                             </button>
                         </div>
@@ -147,7 +153,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                     <NavBtn icon="fa-chevron-left" 
                         onClick={() => {
                             const currentIdx = viewIndex === -1 ? history.length - 1 : parseInt(viewIndex);
-                            if (currentIdx >= 0) goToMove(currentIdx - 1);
+                            if (currentIdx > 0) goToMove(currentIdx - 1);
                         }} 
                         active={viewIndex !== 0} 
                     />
@@ -159,6 +165,7 @@ const MoveListPanel = ({ history, viewIndex, status, goToMove, handleResign, ren
                             if (viewIndex === -1) return;
                             const currentIdx = parseInt(viewIndex);
                             if (currentIdx < history.length - 1) goToMove(currentIdx + 1);
+                            else goToMove(-1);
                         }} 
                         active={viewIndex !== -1} 
                     />
