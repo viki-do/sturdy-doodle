@@ -38,30 +38,51 @@ def rebuild_board(game_id: uuid.UUID, db: Session):
 def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     try:
         u_uuid = uuid.UUID(user_id)
-        time_cat = data.get("time_category", "rapid")
-        base_time = data.get("base_time", 600) 
+        chosen_color = data.get("color", "white") 
         board = chess.Board()
         
+        # ID-k kiosztása
+        white_id = u_uuid if chosen_color == "white" else None
+        black_id = u_uuid if chosen_color == "black" else None
+
         new_game = models.Game(
-            white_player_id=u_uuid,
-            time_category=time_cat,      
-            base_time_sec=base_time,     
-            status=models.GameStatus.ongoing,
-            created_at=datetime.utcnow()
+            white_player_id=white_id,
+            black_player_id=black_id,
+            player_color=chosen_color,
+            time_category=data.get("time_category", "rapid"),
+            base_time_sec=data.get("base_time", 600),
+            status=models.GameStatus.ongoing
         )
         db.add(new_game)
         db.commit()
         db.refresh(new_game)
-        
-        start_move = models.Move(
-            game_id=new_game.id,
-            move_number=0,
-            notation="start",
-            fen_before=board.fen()
-        )
-        db.add(start_move)
+
+        # Kezdőállás mentése
+        db.add(models.Move(game_id=new_game.id, move_number=0, notation="start", fen_before=board.fen()))
         db.commit()
-        return {"game_id": str(new_game.id), "fen": board.fen()}
+
+        # Bot lépése, ha a felhasználó fekete
+        if chosen_color == "black":
+            engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+            result = engine_proc.play(board, chess.engine.Limit(time=0.5))
+            move_san = board.san(result.move)
+            bot_move = models.Move(
+                game_id=new_game.id,
+                move_number=1,
+                notation=move_san,
+                fen_before=board.fen()
+            )
+            board.push(result.move)
+            db.add(bot_move)
+            db.commit()
+            engine_proc.quit()
+
+        return {
+            "game_id": str(new_game.id), 
+            "fen": board.fen(), 
+            "player_color": chosen_color
+        }
+    # EZ A RÉSZ HIÁNYZOTT VAGY ROSSZUL VOLT BEHÚZVA:
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -188,8 +209,6 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     
-# ... (a fájl eleje változatlan)
-
 @router.post("/resign-game")
 def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     game_uuid = uuid.UUID(data.get("game_id"))
@@ -281,25 +300,43 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
 
 @router.get("/get-active-game")
 def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    active_game = db.query(models.Game).filter(models.Game.white_player_id == uuid.UUID(user_id), models.Game.status == models.GameStatus.ongoing).order_by(models.Game.created_at.desc()).first()
+    u_uuid = uuid.UUID(user_id)
+    # Keressük a játékot, ahol a user vagy fehér, vagy fekete bábukkal van
+    active_game = db.query(models.Game).filter(
+        ((models.Game.white_player_id == u_uuid) | (models.Game.black_player_id == u_uuid)),
+        models.Game.status == models.GameStatus.ongoing
+    ).order_by(models.Game.created_at.desc()).first()
+
     if active_game:
-        move_exists = db.query(models.Move).filter(models.Move.game_id == active_game.id).first()
-        if not move_exists:
-            db.add(models.Move(game_id=active_game.id, move_number=0, notation="start", fen_before=chess.STARTING_FEN))
-            db.commit()
-        return {"game_id": str(active_game.id)}
+        return {
+            "game_id": str(active_game.id),
+            "player_color": active_game.player_color
+        }
     return {"game_id": None}
 
 @router.post("/resign-game")
 def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    game_uuid = uuid.UUID(data.get("game_id"))
-    game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
-    if game:
-        # JAVÍTÁS: models.GameStatus.resigned használata a finished helyett
-        game.status = models.GameStatus.resigned 
-        db.commit()
-        return {"status": "resigned"}
-    return {"status": "not_found"}
+    try:
+        game_uuid = uuid.UUID(str(data.get("game_id")))
+        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+        
+        if game:
+            # Aki NEM a player_color, az nyert
+            winner = "Black" if game.player_color == "white" else "White"
+            
+            # Ha a PostgreSQL hibát dob a 'resigned'-re, használd a 'finished'-et ideiglenesen
+            game.status = models.GameStatus.resigned 
+            db.commit()
+            
+            return {
+                "status": "resigned", 
+                "reason": f"{winner} wins by resignation"
+            }
+        return {"status": "not_found"}
+    except Exception as e:
+        db.rollback()
+        # Visszaküldjük a hiba okát a konzolba
+        raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/move")
 def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):

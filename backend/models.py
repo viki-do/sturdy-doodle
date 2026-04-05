@@ -40,6 +40,7 @@ class Game(Base):
     status = Column(Enum(GameStatus), default=GameStatus.ongoing)
     pgn = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+    player_color = Column(String(10), default="white")
 
 
 class Move(Base):

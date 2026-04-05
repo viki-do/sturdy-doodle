@@ -10,8 +10,11 @@ const MoveListPanel = ({
     startNewGame,
     isPopupClosed,
     isPopupVisible,
-    isFlipped,      // ÚJ PROP: a tábla jelenlegi állása
-    onFlipBoard     // ÚJ PROP: függvény a váltáshoz
+    isFlipped,
+    onFlipBoard,
+    setIsSelectingBot,
+    setGameId,
+    reason
 }) => {
     const isOngoing = status === "ongoing";
     const isGameOver = status === "resigned" || status === "checkmate" || status === "draw" || status === "stalemate";
@@ -30,16 +33,36 @@ const MoveListPanel = ({
 
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
+    // --- EREDMÉNY MEGHATÁROZÁSA ---
     const getResultData = () => {
         if (!isGameOver) return null;
-        if (status === "resigned") return { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
+        
+        if (reason && (reason.includes("wins") || reason.includes("White") || reason.includes("Black"))) {
+            const whiteWon = reason.includes("White");
+            return { 
+                score: whiteWon ? "1-0" : "0-1", 
+                winnerText: whiteWon ? "White Won" : "Black Won", 
+                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate"
+            };
+        }
+        
+        if (status === "resigned") {
+            return isFlipped 
+                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
+                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
+        }
+        
         if (status === "checkmate") {
             const isWhiteLast = (movesOnly.length % 2 !== 0);
             return isWhiteLast 
                 ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
                 : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
         }
-        if (status === "draw" || status === "stalemate") return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Agreement/Rule" };
+        
+        if (status === "draw" || status === "stalemate") {
+            return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
+        }
+
         return { score: "*", winnerText: "Game Over", reasonText: "" };
     };
 
@@ -48,15 +71,19 @@ const MoveListPanel = ({
     return (
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
             
-            {/* Felső Navigáció */}
+            {/* Felső Tabok */}
             <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
-                <TopTab icon="fa-plus" label="New Game" onClick={() => startNewGame(400)} />
+                <TopTab icon="fa-plus" label="New Game" onClick={() => { 
+                    localStorage.removeItem('chessGameId'); 
+                    setGameId(null); 
+                    setIsSelectingBot(true); 
+                }} />
                 <TopTab icon="fa-th" label="Games" />
                 <TopTab icon="fa-users" label="Players" />
             </div>
 
-            {/* Lépéslista terület */}
+            {/* Tartalmi rész */}
             <div className="flex-1 overflow-y-auto no-scrollbar bg-[#262421]">
                 <div className="flex bg-chess-panel-header text-[13px] font-bold text-[#989795] border-b border-[#1b1a18] sticky top-0 z-10">
                     <div className="py-3 px-8 border-b-2 border-white text-white cursor-pointer bg-[#262421]">Moves</div>
@@ -111,7 +138,7 @@ const MoveListPanel = ({
                 </div>
             </div>
 
-            {/* Alsó vezérlő szekció */}
+            {/* Alsó vezérlők */}
             <div className="bg-chess-panel-header flex flex-col border-t border-[#1b1a18]">
                 {showEndGameUI && (
                     <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
@@ -119,7 +146,7 @@ const MoveListPanel = ({
                             <i className="fas fa-microscope"></i> Game Review
                         </button>
                         <div className="grid grid-cols-2 gap-2 pt-3">
-                            <button onClick={() => startNewGame(400)} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
+                            <button onClick={() => { localStorage.removeItem('chessGameId'); setGameId(null); setIsSelectingBot(true); }} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
                                 <i className="fas fa-plus"></i> New Bot
                             </button>
                             <button onClick={() => startNewGame(400)} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
@@ -129,7 +156,6 @@ const MoveListPanel = ({
                     </div>
                 )}
 
-                {/* Navigációs nyilak */}
                 <div className="p-3 flex gap-1 bg-chess-panel-header">
                     <NavBtn icon="fa-step-backward" onClick={() => goToMove(0)} active={viewIndex !== 0} />
                     <NavBtn icon="fa-chevron-left" 
@@ -161,26 +187,15 @@ const MoveListPanel = ({
                             <button onClick={handleResign} className="flex items-center gap-2 hover:text-white transition-colors text-[#e74c3c]"><i className="fas fa-flag text-sm"></i><span className="text-[13px] font-bold">Resign</span></button>
                         </div>
                     ) : (
-                        /* Amikor vége a játéknak, itt jelennek meg az ikonok */
                         <div className="flex gap-6 items-center w-full justify-center text-[#bab9b8]">
                             <i className="fas fa-share-alt hover:text-white cursor-pointer transition-colors text-lg"></i>
                             <i className="fas fa-download hover:text-white cursor-pointer transition-colors text-lg"></i>
                             <i className="fas fa-cog hover:text-white cursor-pointer transition-colors text-lg"></i>
-                            {/* KICSERÉLVE: Expand helyett Sync ikon a megfordításhoz */}
-                            <i 
-                                onClick={onFlipBoard} 
-                                className={`fas fa-sync-alt hover:text-white cursor-pointer transition-all text-lg ${isFlipped ? 'rotate-180 text-[#81b64c]' : ''}`}
-                                title="Flip Board"
-                            ></i>
+                            <i onClick={onFlipBoard} className={`fas fa-sync-alt hover:text-white cursor-pointer transition-all text-lg ${isFlipped ? 'rotate-180 text-[#81b64c]' : ''}`} title="Flip Board"></i>
                         </div>
                     )}
-                    {/* Ez az ikon most már csak folyamatban lévő játéknál jelenik meg felül, 
-                        vagy ha el akarod távolítani, törölhető, mert az alsó sorba is bekerült */}
                     {isOngoing && (
-                        <i 
-                            onClick={onFlipBoard}
-                            className={`fas fa-sync-alt hover:text-white cursor-pointer transition-transform hover:rotate-180 ${isFlipped ? 'text-[#81b64c]' : ''}`}
-                        ></i>
+                        <i onClick={onFlipBoard} className={`fas fa-sync-alt hover:text-white cursor-pointer transition-transform hover:rotate-180 ${isFlipped ? 'text-[#81b64c]' : ''}`}></i>
                     )}
                 </div>
             </div>

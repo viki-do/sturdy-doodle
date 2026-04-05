@@ -20,7 +20,8 @@ const GameBoard = () => {
         token, gameId, setGameId, setFen, setLastMove, setViewIndex,
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
-        setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion
+        setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
+        renderNotation
     } = gameLogic;
 
     const isGameActive = !!gameId && gameId !== "null";
@@ -28,22 +29,20 @@ const GameBoard = () => {
     // --- POPUP IDŐZÍTŐ ÉS RESET ---
     useEffect(() => {
         let timer;
-        if (status !== "ongoing" && isGameActive) {
-            // Csak akkor indítjuk a késleltetést, ha még nem zárták be a popupot
+        if (status !== "ongoing" && status !== "" && isGameActive) {
             if (!isPopupClosed) {
                 timer = setTimeout(() => {
                     setDelayedShowPopup(true);
-                }, 800);
+                }, 500); 
             }
         } else if (status === "ongoing") {
-            // Ha új játék indul, mindent alaphelyzetbe teszünk
             setDelayedShowPopup(false);
             setIsPopupClosed(false);
         }
         return () => { if (timer) clearTimeout(timer); };
     }, [status, isGameActive, isPopupClosed]);
 
-    // --- NAVIGÁCIÓS FÜGGVÉNY (Hangokkal kiegészítve) ---
+    // --- NAVIGÁCIÓS FÜGGVÉNY (Javított hangvezérléssel) ---
     const goToMove = useCallback((index, isWhiteOnly = false) => {
         setSelectedSquare(null);
         
@@ -69,6 +68,7 @@ const GameBoard = () => {
 
         const move = history[index];
         if (!move) return;
+        
         playNavSound(move.m);
 
         if (isWhiteOnly) {
@@ -86,6 +86,24 @@ const GameBoard = () => {
         }
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playSound]);
 
+    // --- BILLENTYŰZET NAVIGÁCIÓ ---
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const currentIdx = viewIndex === -1 ? history.length - 1 : parseInt(viewIndex);
+            if (e.key === 'ArrowLeft') {
+                if (currentIdx > 0) goToMove(currentIdx - 1);
+            } else if (e.key === 'ArrowRight') {
+                if (viewIndex !== -1) {
+                    if (currentIdx < history.length - 1) goToMove(currentIdx + 1);
+                    else goToMove(-1);
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [viewIndex, history, goToMove]);
+
     // --- EGÉR ESEMÉNYEK ---
     const handleMouseDown = async (e, row, col) => {
         if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
@@ -102,7 +120,9 @@ const GameBoard = () => {
             return;
         }
 
-        if (piece && piece.color === 'w') {
+        const myColor = isFlipped ? 'b' : 'w';
+
+        if (piece && piece.color === myColor) {
             setIsDragging(true);
             setHoverSquare(square);
             setSelectedSquare(square);
@@ -136,6 +156,15 @@ const GameBoard = () => {
         }
     };
 
+    // --- ÚJ: HIÁNYZÓ BOT VÁLASZTÁS KEZELŐ ---
+    const handleBotSelect = async (elo, color) => {
+        const finalColor = await startNewGame(elo, color); 
+        setIsSelectingBot(false); 
+        if (finalColor) {
+            setIsFlipped(finalColor === 'black');
+        }
+    };
+
     // Inicializálás
     useEffect(() => {
         const initialize = async () => {
@@ -144,6 +173,7 @@ const GameBoard = () => {
                 const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
                 if (res.data.game_id) {
                     setGameId(res.data.game_id);
+                    setIsFlipped(res.data.player_color === 'black');
                     await fetchGameState(res.data.game_id);
                 }
             } catch (e) { setGameId(null); }
@@ -169,82 +199,72 @@ const GameBoard = () => {
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, [isDragging, getSquareName, setMousePos, setHoverSquare]);
 
-    // Jelölés renderelése (Ikonokkal)
-    const renderNotation = (text) => {
-        if (!text || text === "start") return "";
-        const icons = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘' };
-        return icons[text[0]] ? (
-            <span className="flex items-center">
-                <span className="text-[1.3em] mr-0.5 leading-none">{icons[text[0]]}</span>
-                {text.substring(1)}
-            </span>
-        ) : text;
-    };
-
     return (
-    <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
-        {/* EVALUATION BAR */}
-        <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
-            <div className="bg-white w-full h-[50%] transition-all duration-500"></div>
-        </div>
-
-        <div className="flex flex-col justify-center items-center h-full shrink-0">
-            {/* FELSŐ SZEMÉLY: Ha flipped, akkor te vagy felül, ha nem, akkor az ellenfél */}
-            <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                    <i className="fas fa-user text-[#808080] text-xl"></i>
-                </div>
-                <span className="text-[#bab9b8] font-bold text-[14px]">
-                    {isFlipped ? 'You' : 'Opponent'}
-                </span>
+        <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
+            <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
+                <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
             </div>
 
-            <div className="relative shrink-0 p-0 m-0">
-                <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative" 
-                     style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
-                    
-                    <ChessBoardGrid 
-                        gameLogic={{ ...gameLogic, isFlipped }} 
-                        onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp} 
-                    />
+            <div className="flex flex-col justify-center items-center h-full shrink-0">
+                <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
+                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                        <i className="fas fa-user text-[#808080] text-xl"></i>
+                    </div>
+                    <span className="text-[#bab9b8] font-bold text-[14px]">
+                        {isFlipped ? 'You' : 'Opponent'}
+                    </span>
+                </div>
+
+                <div className="relative shrink-0 p-0 m-0">
+                    <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative" 
+                         style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
                         
-                        {/* PROMÓCIÓ UI */}
+                        <ChessBoardGrid 
+                            gameLogic={{ ...gameLogic, isFlipped }} 
+                            onMouseDown={handleMouseDown} 
+                            onMouseUp={handleMouseUp} 
+                        />
+                        
                         <AnimatePresence>
                             {pendingPromotion && (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute z-5000 bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
-                                    style={{ left: `${(pendingPromotion.to.charCodeAt(0) - 97) * 12.5}%`, top: pendingPromotion.to.endsWith('8') ? '0' : 'auto', bottom: pendingPromotion.to.endsWith('1') ? '0' : 'auto', width: '12.5%' }}>
+                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+                                    className="absolute z-[5000] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
+                                    style={{ 
+                                        left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`, 
+                                        top: ((!isFlipped && pendingPromotion.to.endsWith('8')) || (isFlipped && pendingPromotion.to.endsWith('1'))) ? '0' : 'auto', 
+                                        bottom: ((!isFlipped && pendingPromotion.to.endsWith('1')) || (isFlipped && pendingPromotion.to.endsWith('8'))) ? '0' : 'auto', 
+                                        width: '12.5%' 
+                                    }}>
                                     {['q', 'n', 'r', 'b'].map((type) => (
                                         <button key={type} onClick={() => gameLogic.executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
-                                            <img src={`/assets/pieces/white_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
+                                            <img src={`/assets/pieces/${isFlipped ? 'black' : 'white'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
                                         </button>
                                     ))}
                                 </motion.div>
                             )}
                         </AnimatePresence>
-
-                        {/* GAME OVER POPUP */}
+                        
                         <AnimatePresence>
                             {delayedShowPopup && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
-                                    className="absolute inset-0 bg-black/40 flex items-center justify-center z-9999 rounded-sm pointer-events-auto">
+                                    className="absolute inset-0 bg-black/40 flex items-center justify-center z-[9999] rounded-sm pointer-events-auto">
                                     <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl max-w-sm w-85 relative">
-                                        
                                         <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} className="absolute top-4 right-5 text-[#989795] hover:text-white text-xl cursor-pointer">
                                             <i className="fas fa-times"></i>
                                         </button>
-
                                         <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">
                                             {status === "checkmate" ? "Checkmate" : status === "resigned" ? "Resigned" : "Game Over"}
                                         </h1>
                                         <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">{reason}</p>
-                                        
                                         <div className="flex flex-col gap-3">
-                                            <button onClick={async () => { setDelayedShowPopup(false); await startNewGame(); window.location.reload(); }} 
-                                                className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95 cursor-pointer">
+                                            <button onClick={() => { 
+                                                setDelayedShowPopup(false); 
+                                                setGameId(null); 
+                                                localStorage.removeItem('chessGameId'); 
+                                                setIsSelectingBot(true);
+                                            }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95 cursor-pointer">
                                                 New Game
                                             </button>
-                                            
                                             <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} 
                                                 className="w-full py-3 bg-transparent text-[#bab9b8] rounded-xl text-lg font-bold hover:text-white transition-colors cursor-pointer">
                                                 Review Game
@@ -254,11 +274,6 @@ const GameBoard = () => {
                                 </motion.div>
                             )}
                         </AnimatePresence>
-
-                        {/* Extra réteg blokkoláshoz */}
-                        {status !== "ongoing" && !delayedShowPopup && !isPopupClosed && (
-                            <div className="absolute inset-0 z-4000 bg-transparent" />
-                        )}
                     </div>
                 </div>
 
@@ -273,32 +288,30 @@ const GameBoard = () => {
             </div>
 
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
-            {/* Ha van gameId ÉS az nem "null" string, akkor a játék megy */}
-            {gameId && gameId !== "null" ? (
-                <MoveListPanel 
-                    {...gameLogic} 
-                    goToMove={goToMove} 
-                    renderNotation={renderNotation}
-                    isPopupClosed={isPopupClosed} 
-                    isPopupVisible={delayedShowPopup}
-                    isFlipped={isFlipped}
-                    onFlipBoard={() => setIsFlipped(!isFlipped)}
-                />
-            ) : isSelectingBot ? (
-                <BotSelectionPanel 
-                    onBack={() => setIsSelectingBot(false)} 
-                    onSelectBot={(elo) => { 
-                        startNewGame(elo); 
-                        setIsSelectingBot(false); 
-                    }} 
-                />
-            ) : (
-                <PlaySelectionPanel 
-                    onStartGame={startNewGame} 
-                    onPlayBots={() => setIsSelectingBot(true)} // <-- Ez legyen itt!
-                />
-            )}
-        </div>
+                {isGameActive ? (
+                    <MoveListPanel 
+                        {...gameLogic} 
+                        setGameId={setGameId}
+                        goToMove={goToMove} 
+                        renderNotation={renderNotation}
+                        isPopupClosed={isPopupClosed} 
+                        isPopupVisible={delayedShowPopup}
+                        isFlipped={isFlipped}
+                        onFlipBoard={() => setIsFlipped(!isFlipped)}
+                        setIsSelectingBot={setIsSelectingBot}
+                    />
+                ) : isSelectingBot ? (
+                    <BotSelectionPanel 
+                        onBack={() => setIsSelectingBot(false)} 
+                        onSelectBot={handleBotSelect} 
+                    />
+                ) : (
+                    <PlaySelectionPanel 
+                        onStartGame={startNewGame} 
+                        onPlayBots={() => setIsSelectingBot(true)} 
+                    />
+                )}
+            </div>
         </div>
     );
 };

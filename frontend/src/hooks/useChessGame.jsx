@@ -128,47 +128,44 @@ export const useChessGame = () => {
         } catch (err) { fetchGameState(gameId); }
     };
 
-    const handleMouseDown = async (e, row, col) => {
-        if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
-        const square = getSquareName(row, col);
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
-        setMousePos({ x: e.clientX, y: e.clientY });
+   const handleMouseDown = async (e, row, col) => {
+    if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
+    const square = getSquareName(row, col);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
+    setMousePos({ x: e.clientX, y: e.clientY });
 
-        const pieces = fen.split(' ')[0].split('/').map(r => {
-            const line = [];
-            for (let char of r) {
-                if (isNaN(char)) line.push(char);
-                else for (let i = 0; i < parseInt(char); i++) line.push(null);
-            }
-            return line;
-        });
-        const piece = pieces[row] ? pieces[row][col] : null;
+    const chess = new Chess(fen);
+    const piece = chess.get(square);
 
-        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            await executeMove(selectedSquare, square);
-            return;
+    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
+        await executeMove(selectedSquare, square);
+        return;
+    }
+
+    // --- JAVÍTÁS: A mi színünk meghatározása isFlipped alapján ---
+    const myColor = isFlipped ? 'b' : 'w';
+
+    // Csak a saját színű bábunkat engedjük megfogni
+    if (piece && piece.color === myColor) {
+        setIsDragging(true);
+        setHoverSquare(square);
+        if (selectedSquare !== square) {
+            setSelectedSquare(square);
+            try {
+                const res = await axios.post(`${API_BASE}/get-valid-moves`,
+                    { game_id: gameId, square: square },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setValidMoves(res.data.valid_moves || []);
+            } catch (err) { setValidMoves([]); }
         }
-
-        if (piece && piece === piece.toUpperCase()) {
-            setIsDragging(true);
-            setHoverSquare(square);
-            if (selectedSquare !== square) {
-                setSelectedSquare(square);
-                try {
-                    const res = await axios.post(`${API_BASE}/get-valid-moves`,
-                        { game_id: gameId, square: square },
-                        { headers: { Authorization: `Bearer ${token}` } }
-                    );
-                    setValidMoves(res.data.valid_moves || []);
-                } catch (err) { setValidMoves([]); }
-            }
-        } else {
-            setSelectedSquare(null);
-            setValidMoves([]);
-            setHoverSquare(null);
-        }
-    };
+    } else {
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
+    }
+};
 
     const handleMouseUp = async (row, col) => {
         if (!isDragging) return;
@@ -223,18 +220,26 @@ export const useChessGame = () => {
         } catch (err) { console.error(err); }
     }, [userId, token, API_BASE, playSound]);
 
-    const handleResign = async () => {
-        if (!window.confirm("Biztosan feladod?")) return;
-        const currentId = gameId;
-        playSound('game-end'); 
-        localStorage.removeItem('chessGameId');
-        setStatus("resigned");
-        setReason("Black wins by resignation");
-        try {
-            await axios.post(`${API_BASE}/resign-game`, { game_id: currentId }, { headers: { Authorization: `Bearer ${token}` } });
-            await fetchGameState(currentId);
-        } catch (err) { console.error(err); }
-    };
+const handleResign = async () => {
+    if (!window.confirm("Biztosan feladod?")) return;
+    if (!gameId || !token) return;
+
+    try {
+        const res = await axios.post(`${API_BASE}/resign-game`, 
+            { game_id: gameId }, 
+            { headers: { Authorization: `Bearer ${token}` } } // Token hozzáadva!
+        );
+
+        if (res.data.status === "resigned") {
+            playSound('game-end'); 
+            setReason(res.data.reason || "Game resigned");
+            setStatus("resigned"); // Ez váltja ki a popupot
+            
+            await fetchGameState(gameId);
+            localStorage.removeItem('chessGameId');
+        }
+    } catch (err) { console.error("Resign error:", err); }
+};
 
     // Polling hangkezelés az eredeti szerint
     useEffect(() => {
