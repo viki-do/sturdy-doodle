@@ -109,33 +109,28 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
     board = rebuild_board(game_uuid, db)
     move_uci = data.get("move")
     
+    # 1. Ez a belső segédfüggvény (Csak definíció!)
     def get_game_over_details(b):
         """Meghatározza a játék végének pontos okát és státuszát."""
         if b.is_checkmate():
-            # Aki lépett, az nyert (tehát ha most WHITE jönne, akkor BLACK nyert)
             winner = "Black" if b.turn == chess.WHITE else "White"
             return models.GameStatus.checkmate, f"{winner} wins by checkmate"
         
         if b.is_stalemate():
             return models.GameStatus.draw, "Draw by stalemate"
         
-        if b.is_insufficient_material():
+        if b.is_insufficient_material() or b.is_dead_position():
             return models.GameStatus.draw, "Draw by insufficient material"
         
-        if b.can_claim_threefold_repetition():
-            return models.GameStatus.draw, "Draw by threefold repetition"
+        if b.can_claim_threefold_repetition() or b.is_fivefold_repetition():
+            return models.GameStatus.draw, "Draw by repetition"
         
-        if b.can_claim_fifty_moves():
+        if b.can_claim_fifty_moves() or b.is_seventyfive_moves():
             return models.GameStatus.draw, "Draw by 50-move rule"
-            
-        if b.is_fivefold_repetition():
-            return models.GameStatus.draw, "Draw by fivefold repetition"
-            
-        if b.is_seventyfive_moves():
-            return models.GameStatus.draw, "Draw by 75-move rule"
 
         return models.GameStatus.ongoing, None
 
+    # 2. Itt indul a tényleges logika
     try:
         # --- 1. JÁTÉKOS LÉPÉSE ---
         user_move = chess.Move.from_uci(move_uci)
@@ -145,24 +140,24 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         board.push(user_move)
         user_is_check = board.is_check()
         
-        # Játékos lépésének mentése
+        # Mentés adatbázisba (move_number kiszámításával)
+        m_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
         user_move_record = models.Move(
             game_id=game_uuid, 
-            move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+            move_number=m_count, 
             notation=user_move_san, 
             fen_before=board.fen()
         )
         db.add(user_move_record)
         db.commit()
 
-        # --- 2. BOT VÁLASZA (Csak ha nincs még vége) ---
+        # --- 2. BOT VÁLASZA ---
         stock_san, m_from, m_to = "", "", ""
-        bot_is_capture = False
-        bot_is_check = False
+        bot_is_capture, bot_is_check = False, False
         
         if not board.is_game_over():
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=1.0)) # Rövidítettem az időn a teszteléshez
+            result = engine_proc.play(board, chess.engine.Limit(time=1.0))
             
             m_from = chess.square_name(result.move.from_square)
             m_to = chess.square_name(result.move.to_square)
@@ -174,16 +169,17 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             engine_proc.quit()
 
             # Bot lépésének mentése
+            m_count_bot = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
             bot_move_record = models.Move(
                 game_id=game_uuid, 
-                move_number=db.query(models.Move).filter(models.Move.game_id == game_uuid).count(), 
+                move_number=m_count_bot, 
                 notation=stock_san, 
                 fen_before=board.fen()
             )
             db.add(bot_move_record)
             db.commit()
 
-        # --- 3. VÉGSŐ STÁTUSZ ELLENŐRZÉS ÉS MENTÉS ---
+        # --- 3. VÉGSŐ STÁTUSZ ELLENŐRZÉS ---
         final_status, reason = get_game_over_details(board)
         
         if final_status != models.GameStatus.ongoing:
@@ -197,28 +193,53 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             "is_game_over": final_status != models.GameStatus.ongoing,
             "status": final_status.value,
             "reason": reason,
-            "user_move": {"is_capture": user_is_capture, "is_check": user_is_check},
+            "user_move": {
+                "is_capture": user_is_capture, 
+                "is_check": user_is_check,
+                "is_en_passant": user_is_en_passant
+            },
             "bot_move": {
-                "from": m_from, "to": m_to, 
-                "is_capture": bot_is_capture, "is_check": bot_is_check
+                "from": m_from, 
+                "to": m_to, 
+                "is_capture": bot_is_capture, # A frontend ezt keresi
+                "is_check": bot_is_check,     # A frontend ezt keresi
+                "notation": stock_san         # Extra infónak jól jöhet
             }
         }
         
     except Exception as e:
         db.rollback()
+        print(f"Hiba: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     
 @router.post("/resign-game")
 def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    game_uuid = uuid.UUID(data.get("game_id"))
-    game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
-    if game:
-        # JAVÍTÁS: models.GameStatus.resigned használata a finished helyett
-        game.status = models.GameStatus.resigned 
-        db.commit()
-        return {"status": "resigned"}
-    return {"status": "not_found"}
-
+    try:
+        game_uuid = uuid.UUID(str(data.get("game_id")))
+        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+        
+        if game:
+            # Szigorú ellenőrzés: ha a játékos sötéttel van ('black'), akkor a világos nyer ('White')
+            # Kisbetűssé alakítjuk, hogy ne legyen kavarodás
+            p_color = str(game.player_color).lower() if game.player_color else "white"
+            
+            if p_color == "black":
+                winner = "White"
+            else:
+                winner = "Black"
+                
+            game.status = models.GameStatus.resigned 
+            db.commit()
+            
+            return {
+                "status": "resigned", 
+                "reason": f"{winner} wins by resignation" # Ez megy a frontendnek
+            }
+        return {"status": "not_found"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
     try:
@@ -250,6 +271,7 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
                 continue
 
             try:
+                # Végrehajtjuk a lépést a táblán, hogy a ciklus végére a tábla a legfrissebb állást mutassa
                 mv = board.push_san(m.notation)
                 history_data.append({
                     "num": m.move_number, 
@@ -265,27 +287,30 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
         # --- PONTOS OK (REASON) MEGHATÁROZÁSA ---
         status_value = game.status.value if game.status else "ongoing"
         reason = "Match ongoing"
+        p_color = str(game.player_color).lower() if game.player_color else "white"
 
         if game.status == models.GameStatus.resigned:
-            # Fehér (user) adta fel, tehát Fekete (bot) nyert
-            reason = "Black wins by resignation"
+            winner = "Black" if p_color == "white" else "White"
+            reason = f"{winner} wins by resignation"
         
         elif game.status == models.GameStatus.checkmate:
+            # Matt esetén az nyert, aki épp nem jönne (mivel az utolsó lépés után vagyunk)
             winner = "Black" if board.turn == chess.WHITE else "White"
             reason = f"{winner} wins by checkmate"
             
         elif game.status in [models.GameStatus.draw, models.GameStatus.finished]:
-            # Itt ellenőrizzük az összes létező döntetlen típust
+            # Döntetlen típusok részletes ellenőrzése
             if board.is_stalemate():
                 reason = "Draw by stalemate"
-            elif board.is_insufficient_material():
+            elif board.is_insufficient_material() or board.is_dead_position():
                 reason = "Draw by insufficient material"
             elif board.can_claim_threefold_repetition() or board.is_fivefold_repetition():
                 reason = "Draw by repetition"
             elif board.can_claim_fifty_moves() or board.is_seventyfive_moves():
                 reason = "Draw by 50-move rule"
             else:
-                reason = "Draw"
+                # Ha a státusz draw, de a tábla szerint nem technikai remi, akkor megegyezés volt
+                reason = "Draw by agreement"
 
         return {
             "history": history_data,
@@ -294,8 +319,25 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
         }
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in get_game_history: {e}")
         return {"history": [], "status": "ongoing", "reason": "Error"}
+    
+@router.post("/offer-draw")
+def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    try:
+        game_uuid = uuid.UUID(str(data.get("game_id")))
+        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+        
+        if game:
+            # A Bot automatikusan elfogadja a döntetlent
+            game.status = models.GameStatus.draw
+            db.commit()
+            return {"status": "draw", "reason": "Draw by agreement"}
+            
+        return {"status": "not_found"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/get-active-game")
 def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
@@ -344,10 +386,9 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
     move_uci = data.get("move") # Például: "e2e4" vagy promótálásnál "e7e8q"
     
     def get_game_over_details(b):
-        """Meghatározza a játék végének pontos okát és státuszát."""
         if b.is_checkmate():
-            # JAVÍTÁS: Ha matt van, az a játékos vesztett, akinek a köre jönne (b.turn).
-            # Ha b.turn == chess.WHITE (True), akkor a Fehér kapott mattot -> Fekete nyert.
+        # b.turn True = White jönne, tehát a Black mattolt
+        # b.turn False = Black jönne, tehát a White mattolt
             winner = "Black" if b.turn == chess.WHITE else "White"
             return models.GameStatus.checkmate, f"{winner} wins by checkmate"
         

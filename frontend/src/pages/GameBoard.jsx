@@ -291,6 +291,7 @@ const GameBoard = () => {
                 {isGameActive ? (
                     <MoveListPanel 
                         {...gameLogic} 
+                        reason={reason}
                         setGameId={setGameId}
                         goToMove={goToMove} 
                         renderNotation={renderNotation}
@@ -299,6 +300,7 @@ const GameBoard = () => {
                         isFlipped={isFlipped}
                         onFlipBoard={() => setIsFlipped(!isFlipped)}
                         setIsSelectingBot={setIsSelectingBot}
+                        offerDraw={gameLogic.offerDraw}
                     />
                 ) : isSelectingBot ? (
                     <BotSelectionPanel 

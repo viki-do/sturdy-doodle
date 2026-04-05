@@ -247,18 +247,44 @@ const handleResign = async () => {
     try {
         const res = await axios.post(`${API_BASE}/resign-game`, 
             { game_id: gameId }, 
-            { headers: { Authorization: `Bearer ${token}` } } // Token hozzáadva!
+            { headers: { 'Authorization': `Bearer ${token}` } }
         );
 
         if (res.data.status === "resigned") {
             playSound('game-end'); 
-            setReason(res.data.reason || "Game resigned");
-            setStatus("resigned"); // Ez váltja ki a popupot
             
-            await fetchGameState(gameId);
+            // AZONNALI FRISSÍTÉS A BACKEND VÁLASZA ALAPJÁN
+            setReason(res.data.reason); 
+            setStatus("resigned");
+            
+            // Itt ne hívjuk meg a fetchGameState-et rögtön, 
+            // mert a polling (useEffect) felülírhatja a reason-t amíg a DB frissül
             localStorage.removeItem('chessGameId');
         }
-    } catch (err) { console.error("Resign error:", err); }
+    } catch (err) { 
+        console.error("Resign error:", err); 
+    }
+};
+
+const offerDraw = async () => {
+    if (!window.confirm("Döntetlent ajánlasz az ellenfélnek?")) return;
+    if (!gameId || !token) return;
+
+    try {
+        const res = await axios.post(`${API_BASE}/offer-draw`, 
+            { game_id: gameId }, 
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+
+        if (res.data.status === "draw") {
+            playSound('game-end'); 
+            setReason(res.data.reason); 
+            setStatus("draw");
+            localStorage.removeItem('chessGameId');
+        }
+    } catch (err) {
+        console.error("Draw offer error:", err);
+    }
 };
 
     // Polling hangkezelés az eredeti szerint
@@ -303,6 +329,6 @@ const handleResign = async () => {
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset,
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
-        goToMove, handleMouseDown, handleMouseUp, renderNotation
+        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw
     };
 };

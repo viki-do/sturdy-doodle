@@ -14,7 +14,8 @@ const MoveListPanel = ({
     onFlipBoard,
     setIsSelectingBot,
     setGameId,
-    reason
+    reason,
+    offerDraw
 }) => {
     const isOngoing = status === "ongoing";
     const isGameOver = status === "resigned" || status === "checkmate" || status === "draw" || status === "stalemate";
@@ -34,37 +35,62 @@ const MoveListPanel = ({
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
     // --- EREDMÉNY MEGHATÁROZÁSA ---
-    const getResultData = () => {
-        if (!isGameOver) return null;
+  const getResultData = () => {
+    if (!isGameOver) return null;
+    
+    // 1. Elsődleges forrás: A backend által küldött pontos 'reason' szöveg
+    if (reason) {
+        const rLower = reason.toLowerCase();
         
-        if (reason && (reason.includes("wins") || reason.includes("White") || reason.includes("Black"))) {
-            const whiteWon = reason.includes("White");
+        // Győzelmek kezelése
+        if (rLower.includes("white wins")) {
             return { 
-                score: whiteWon ? "1-0" : "0-1", 
-                winnerText: whiteWon ? "White Won" : "Black Won", 
-                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate"
+                score: "1-0", 
+                winnerText: "White Won", 
+                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
             };
         }
-        
-        if (status === "resigned") {
-            return isFlipped 
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
-        }
-        
-        if (status === "checkmate") {
-            const isWhiteLast = (movesOnly.length % 2 !== 0);
-            return isWhiteLast 
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
-        }
-        
-        if (status === "draw" || status === "stalemate") {
-            return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
+        if (rLower.includes("black wins")) {
+            return { 
+                score: "0-1", 
+                winnerText: "Black Won", 
+                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
+            };
         }
 
-        return { score: "*", winnerText: "Game Over", reasonText: "" };
-    };
+        // Döntetlenek kezelése a backend üzenete alapján (Agreement, Stalemate, Repetition, stb.)
+        if (rLower.includes("draw")) {
+            // Kivonjuk a "Draw " részt, hogy csak az indok maradjon (pl. "by stalemate")
+            const reasonDetail = reason.replace(/Draw\s+/i, ""); 
+            return { 
+                score: "1/2-1/2", 
+                winnerText: "Draw", 
+                reasonText: reasonDetail || "by Rule" 
+            };
+        }
+    }
+
+    // 2. Fallback: Ha a reason valamiért nem elérhető, a status alapján döntünk
+    if (status === "resigned") {
+        return isFlipped 
+            ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
+            : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
+    }
+    
+    if (status === "checkmate") {
+        const isWhiteLast = (movesOnly.length % 2 !== 0);
+        return isWhiteLast 
+            ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
+            : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
+    }
+
+    // Alapértelmezett döntetlen fallback
+    if (status === "draw" || status === "stalemate") {
+        return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
+    }
+    
+    return { score: "*", winnerText: "Game Over", reasonText: "" };
+};
 
     const result = getResultData();
 
@@ -183,7 +209,13 @@ const MoveListPanel = ({
                 <div className="p-3 bg-chess-panel-header flex justify-between items-center text-[#989795] border-t border-[#1b1a18]">
                     {isOngoing ? (
                         <div className="flex gap-4 items-center">
-                            <button className="flex items-center gap-2 hover:text-white transition-colors"><i className="fas fa-half-circle text-sm"></i><span className="text-[13px] font-bold">Draw</span></button>
+                            <button 
+                                onClick={offerDraw} // <--- Ezt ellenőrizd!
+                                className="flex items-center gap-2 hover:text-white transition-colors"
+                            >
+                                <i className="fas fa-half-circle text-sm"></i>
+                                <span className="text-[13px] font-bold">Draw</span>
+                            </button>
                             <button onClick={handleResign} className="flex items-center gap-2 hover:text-white transition-colors text-[#e74c3c]"><i className="fas fa-flag text-sm"></i><span className="text-[13px] font-bold">Resign</span></button>
                         </div>
                     ) : (
