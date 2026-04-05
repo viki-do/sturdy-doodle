@@ -262,20 +262,30 @@ const GameBoard = () => {
             </div>
 
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
-                {gameId ? (
-                    <MoveListPanel 
-                        {...gameLogic} 
-                        goToMove={goToMove} 
-                        renderNotation={renderNotation}
-                        isPopupClosed={isPopupClosed} 
-                        isPopupVisible={delayedShowPopup}
-                    />
-                ) : isSelectingBot ? (
-                    <BotSelectionPanel onBack={() => setIsSelectingBot(false)} onSelectBot={(elo) => { startNewGame(elo); setIsSelectingBot(false); }} />
-                ) : (
-                    <PlaySelectionPanel onStartGame={startNewGame} onPlayBots={() => setIsSelectingBot(true)} />
-                )}
-            </div>
+            {/* Ha van gameId ÉS az nem "null" string, akkor a játék megy */}
+            {gameId && gameId !== "null" ? (
+                <MoveListPanel 
+                    {...gameLogic} 
+                    goToMove={goToMove} 
+                    renderNotation={renderNotation}
+                    isPopupClosed={isPopupClosed} 
+                    isPopupVisible={delayedShowPopup}
+                />
+            ) : isSelectingBot ? (
+                <BotSelectionPanel 
+                    onBack={() => setIsSelectingBot(false)} 
+                    onSelectBot={(elo) => { 
+                        startNewGame(elo); 
+                        setIsSelectingBot(false); 
+                    }} 
+                />
+            ) : (
+                <PlaySelectionPanel 
+                    onStartGame={startNewGame} 
+                    onPlayBots={() => setIsSelectingBot(true)} // <-- Ez legyen itt!
+                />
+            )}
+        </div>
         </div>
     );
 };

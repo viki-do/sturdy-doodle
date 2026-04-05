@@ -1,18 +1,15 @@
 import React from 'react';
-import { Zap, Monitor, GraduationCap, Users, Trophy, Dices } from 'lucide-react';
+import { Zap, Monitor, GraduationCap, Users } from 'lucide-react';
 
-const PlaySelectionPanel = ({ onStartGame }) => {
+// Hozzáadtuk az onPlayBots propot a fejlécbe
+const PlaySelectionPanel = ({ onStartGame, onPlayBots }) => { 
     return (
-        /* A külső keret hajszálpontosan ugyanaz, mint a MoveListPanel-é */
         <div className="w-112.5 h-180 bg-[#262421] rounded-xl border border-chess-bg overflow-hidden flex flex-col font-sans">
-            
-            {/* Fejléc - Ugyanaz a magasság és háttér, mint a MoveList-nél */}
             <div className="p-5 border-b border-[#1b1a18] bg-chess-panel-header flex items-center justify-center gap-3">
                 <img src="/assets/pieces/white_king.png" className="w-7 h-7" alt="king" />
                 <h2 className="text-2xl font-bold text-white">Play Chess</h2>
             </div>
 
-            {/* Módok listája - görgethető terület */}
             <div className="flex-1 p-4 flex flex-col gap-2 overflow-y-auto no-scrollbar bg-[#2b2926]">
                 <ModeButton 
                     icon={<Zap size={28} className="text-yellow-400 fill-yellow-400" />}
@@ -24,7 +21,8 @@ const PlaySelectionPanel = ({ onStartGame }) => {
                     title="Play Bots"
                     desc="Challenge a bot from Easy to Master"
                     highlight={true}
-                    onClick={onStartGame}
+                    // JAVÍTÁS: Itt hívjuk meg az onPlayBots-ot, ami megnyitja a botválasztót
+                    onClick={onPlayBots} 
                 />
                 <ModeButton 
                     icon={<GraduationCap size={28} className="text-pink-400" />}

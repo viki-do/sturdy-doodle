@@ -20,9 +20,13 @@ const Navbar = () => {
     // ÚJ FUNKCIÓ: Play gomb kezelése
 const handlePlayClick = (e) => {
     e.preventDefault();
-    localStorage.removeItem('chessGameId'); // Biztos ami biztos
-    // Kényszerített újratöltés, hogy a useChessGame useEffectjei tiszta lappal induljanak
-    window.location.href = '/play'; 
+    // NE töröld a gameId-t, csak navigálj
+    // Ha már a /play oldalon vagy, akkor egy frissítés jól jöhet
+    if (location.pathname === '/play') {
+        window.location.reload();
+    } else {
+        navigate('/play');
+    }
 };
 
     const handleLogout = () => {
