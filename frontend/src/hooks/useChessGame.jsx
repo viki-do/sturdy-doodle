@@ -202,23 +202,43 @@ export const useChessGame = () => {
         }
     }, [history]);
 
-    const startNewGame = useCallback(async (difficulty = 400) => {
-        try {
-            const res = await axios.post(`${API_BASE}/create-game`,
-                { user_id: userId, difficulty, time_category: "rapid", base_time: 600 },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            const newId = res.data.game_id;
-            localStorage.setItem('chessGameId', newId);
-            setGameId(newId);
-            setFen(res.data.fen);
-            setLastMove({ from: null, to: null });
-            setHistory([]);
-            setViewIndex(-1);
-            setStatus("ongoing");
-            playSound('game-start');
-        } catch (err) { console.error(err); }
-    }, [userId, token, API_BASE, playSound]);
+    const startNewGame = useCallback(async (difficulty = 400, color = 'white') => {
+    try {
+        let finalColor = color;
+        if (color === 'random') {
+            finalColor = Math.random() < 0.5 ? 'white' : 'black';
+        }
+
+        const res = await axios.post(`${API_BASE}/create-game`,
+            { 
+                user_id: userId, 
+                difficulty: difficulty, 
+                color: finalColor,
+                time_category: "rapid", 
+                base_time: 600 
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        const newId = res.data.game_id;
+        localStorage.setItem('chessGameId', newId);
+        setGameId(newId);
+        setFen(res.data.fen); 
+        
+        setLastMove({ from: null, to: null });
+        setHistory([]);
+        setViewIndex(-1);
+        setStatus("ongoing");
+        
+        await fetchGameState(newId); 
+        playSound('game-start');
+        
+        return finalColor; // Ezt a színt fogja használni a GameBoard a flip-hez
+    } catch (err) { 
+        console.error("Hiba az új játék indításakor:", err); 
+        return 'white';
+    }
+}, [userId, token, API_BASE, playSound, fetchGameState]);
 
 const handleResign = async () => {
     if (!window.confirm("Biztosan feladod?")) return;

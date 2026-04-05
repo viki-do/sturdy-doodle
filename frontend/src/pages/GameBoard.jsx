@@ -157,13 +157,13 @@ const GameBoard = () => {
     };
 
     // --- ÚJ: HIÁNYZÓ BOT VÁLASZTÁS KEZELŐ ---
-    const handleBotSelect = async (elo, color) => {
-        const finalColor = await startNewGame(elo, color); 
+  const handleBotSelect = async (elo, color) => {
+    const finalColor = await startNewGame(elo, color); 
+    if (finalColor) {
         setIsSelectingBot(false); 
-        if (finalColor) {
-            setIsFlipped(finalColor === 'black');
-        }
-    };
+        setIsFlipped(finalColor === 'black'); // Ha fekete vagy, megfordítjuk
+    }
+};
 
     // Inicializálás
     useEffect(() => {

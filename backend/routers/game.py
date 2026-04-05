@@ -41,7 +41,6 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         chosen_color = data.get("color", "white") 
         board = chess.Board()
         
-        # ID-k kiosztása
         white_id = u_uuid if chosen_color == "white" else None
         black_id = u_uuid if chosen_color == "black" else None
 
@@ -57,14 +56,15 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         db.commit()
         db.refresh(new_game)
 
-        # Kezdőállás mentése
+        # 0. lépés: Start állapot mentése
         db.add(models.Move(game_id=new_game.id, move_number=0, notation="start", fen_before=board.fen()))
         db.commit()
 
-        # Bot lépése, ha a felhasználó fekete
+        # --- BOT LÉPÉSE, HA A USER FEKETE ---
         if chosen_color == "black":
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
             result = engine_proc.play(board, chess.engine.Limit(time=0.5))
+            
             move_san = board.san(result.move)
             bot_move = models.Move(
                 game_id=new_game.id,
@@ -72,7 +72,7 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
                 notation=move_san,
                 fen_before=board.fen()
             )
-            board.push(result.move)
+            board.push(result.move) # Most már az e4 pozíció van a board-on
             db.add(bot_move)
             db.commit()
             engine_proc.quit()
@@ -82,7 +82,6 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
             "fen": board.fen(), 
             "player_color": chosen_color
         }
-    # EZ A RÉSZ HIÁNYZOTT VAGY ROSSZUL VOLT BEHÚZVA:
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
