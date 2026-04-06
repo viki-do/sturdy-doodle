@@ -20,11 +20,17 @@ const Navbar = () => {
     // ÚJ FUNKCIÓ: Play gomb kezelése
 const handlePlayClick = (e) => {
     e.preventDefault();
-    // NE töröld a gameId-t, csak navigálj
-    // Ha már a /play oldalon vagy, akkor egy frissítés jól jöhet
+    
+    // 1. Töröljük a mentett játék ID-t a tárolóból
+    localStorage.removeItem('chessGameId');
+    
+    // 2. Navigáció és frissítés kezelése
     if (location.pathname === '/play') {
+        // Ha már ott vagyunk, kényszerítjük az újratöltést, 
+        // így a useChessGame alaphelyzetben (null gameId-val) indul el.
         window.location.reload();
     } else {
+        // Ha máshonnan jövünk, csak navigálunk a Play oldalra
         navigate('/play');
     }
 };

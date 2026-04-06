@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Chess } from 'chess.js';
 
@@ -22,6 +22,11 @@ export const useChessGame = () => {
     const token = localStorage.getItem('chessToken');
     const [reason, setReason] = useState(""); 
 
+    // HANG SZINKRONIZÁCIÓHOZ SZÜKSÉGES REF ÉS STATE-EK
+    const lastPlayedMoveNum = useRef(0);
+    const [userChoiceColor, setUserChoiceColor] = useState('white');
+    const [difficultyChoice, setDifficultyChoice] = useState(400);
+
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
         audio.play().catch(err => console.log(`Audio error: ${soundName}`));
@@ -31,6 +36,7 @@ export const useChessGame = () => {
         const filesArr = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
         return `${filesArr[col]}${8 - row}`;
     }, []);
+    
 
     const renderNotation = useCallback((text) => {
         if (!text || text === "start") return "";
@@ -52,17 +58,19 @@ export const useChessGame = () => {
             if (res.data.history) {
                 setGameId(id);
                 localStorage.setItem('chessGameId', id);
-                setHistory(res.data.history);
+                const serverHistory = res.data.history;
+                setHistory(serverHistory);
+                
+                // SZINKRON: Beállítjuk a számlálót, hogy ne játssza le a múltbéli lépéseket
+                const moveCount = serverHistory.filter(m => m.m !== "start").length;
+                lastPlayedMoveNum.current = moveCount;
+
                 if (res.data.status) setStatus(res.data.status);
                 setReason(res.data.reason || "");
                 
-                if (res.data.status === "ongoing" && res.data.history.length <= 1) {
-                    setTimeout(() => playSound('game-start'), 220);
-                }
-                
                 setViewIndex(-1);
-                if (res.data.history.length > 0) {
-                    const latest = res.data.history[res.data.history.length - 1];
+                if (serverHistory.length > 0) {
+                    const latest = serverHistory[serverHistory.length - 1];
                     setFen(latest.fen);
                     if (latest.from && latest.to) {
                         setLastMove({ from: latest.from, to: latest.to });
@@ -70,9 +78,8 @@ export const useChessGame = () => {
                 }
             }
         } catch (err) { console.error("Hiba:", err); }
-    }, [token, API_BASE, playSound]);
+    }, [token, API_BASE]);
 
-    // --- EXECUTE MOVE - Eredeti hanglogika visszaállítva ---
     const executeMove = async (from, to, promotion = null) => {
         const chess = new Chess(fen);
         const piece = chess.get(from);
@@ -94,7 +101,9 @@ export const useChessGame = () => {
         setValidMoves([]);
         setIsDragging(false);
 
-        // ERDETI HANG-IDŐZÍTÉS ÉS FELTÉTELEK
+        // --- HANG SZINKRON: Növeljük a számlálót, MIELŐTT a polling beérne ---
+        lastPlayedMoveNum.current += 1;
+
         setTimeout(() => {
             if (chess.isCheckmate()) playSound('checkmate');
             else if (chess.isStalemate() || chess.isDraw()) playSound('stalemate');
@@ -103,7 +112,7 @@ export const useChessGame = () => {
             else if (moveAttempt.flags.includes('p')) playSound('promote');
             else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
             else playSound('move');
-        }, 220); // Visszaállítva a te eredeti 220ms-odra
+        }, 220);
 
         try {
             const res = await axios.post(`${API_BASE}/move`,
@@ -114,6 +123,9 @@ export const useChessGame = () => {
             setTimeout(() => {
                 const bot = res.data.bot_move;
                 if (bot && bot.from) {
+                    // --- HANG SZINKRON: A bot lépését is regisztráljuk ---
+                    lastPlayedMoveNum.current += 1;
+
                     setFen(res.data.new_fen);
                     setLastMove({ from: bot.from, to: bot.to });
                     setTimeout(() => {
@@ -121,14 +133,105 @@ export const useChessGame = () => {
                         else if (bot.is_check) playSound('move-check');
                         else if (bot.is_capture) playSound('capture');
                         else playSound('move');
-                    }, 220); // Visszaállítva a te eredeti 220ms-odra
+                    }, 220);
                 }
                 fetchGameState(gameId);
             }, 600);
         } catch (err) { fetchGameState(gameId); }
     };
 
-   const handleMouseDown = async (e, row, col) => {
+    // POLLING: Csak akkor játszik hangot, ha olyan lépés jön, amit még nem "láttunk"
+    useEffect(() => {
+        let interval;
+        if (gameId && status === "ongoing") {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (res.data.history) {
+                        const serverHistory = res.data.history;
+                        const serverMoveCount = serverHistory.filter(m => m.m !== "start").length;
+
+                        // CSAK AKKOR CSELEKSZÜNK, HA ÚJ LÉPÉS VAN A SZERVEREN
+                        if (serverMoveCount > lastPlayedMoveNum.current) {
+                            const latestMove = serverHistory[serverHistory.length - 1];
+                            setHistory(serverHistory);
+                            if (res.data.status) setStatus(res.data.status);
+
+                            if (viewIndex === -1 && latestMove.fen !== fen) {
+                                setFen(latestMove.fen);
+                                setLastMove({ from: latestMove.from, to: latestMove.to });
+
+                                // Polling hang
+                                const m = latestMove.m;
+                                setTimeout(() => {
+                                    if (m.includes('#')) playSound('checkmate');
+                                    else if (m.includes('+')) playSound('move-check');
+                                    else if (m.includes('x')) playSound('capture');
+                                    else playSound('move');
+                                }, 220);
+                            }
+                            // Frissítjük a számlálót, hogy ne szólaljon meg újra
+                            lastPlayedMoveNum.current = serverMoveCount;
+                        }
+                    }
+                } catch (e) {}
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [gameId, fen, status, token, API_BASE, playSound, viewIndex]);
+
+    const resetGame = useCallback(() => {
+        setGameId(null);
+        localStorage.removeItem('chessGameId');
+        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setLastMove({ from: null, to: null });
+        setHistory([]);
+        setStatus("ongoing");
+        setReason("");
+        setViewIndex(-1);
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setPendingPromotion(null);
+        lastPlayedMoveNum.current = 0; // NULLÁZÁS!
+    }, []);
+
+    const startNewGame = useCallback(async (difficulty = 400, color = 'white') => {
+        setUserChoiceColor(color);
+        setDifficultyChoice(difficulty);
+        try {
+            let finalColor = color;
+            if (color === 'random') {
+                finalColor = Math.random() < 0.5 ? 'white' : 'black';
+            }
+
+            const res = await axios.post(`${API_BASE}/create-game`,
+                { user_id: userId, difficulty, color: finalColor, time_category: "rapid", base_time: 600 },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            const newId = res.data.game_id;
+            localStorage.setItem('chessGameId', newId);
+            
+            // AZONNALI RESET
+            setHistory([]);
+            setReason("");
+            setViewIndex(-1);
+            setGameId(newId);
+            setStatus("ongoing");
+
+            // HA FEKETE: A bot már lépett, tehát 1-ről indulunk
+            lastPlayedMoveNum.current = (finalColor === 'black' ? 1 : 0);
+            setFen(res.data.fen);
+
+            await fetchGameState(newId); 
+            playSound('game-start');
+            return finalColor;
+        } catch (err) { return 'white'; }
+    }, [userId, token, API_BASE, playSound, fetchGameState]);
+
+    const handleMouseDown = async (e, row, col) => {
     if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
     const square = getSquareName(row, col);
     const rect = e.currentTarget.getBoundingClientRect();
@@ -183,7 +286,53 @@ export const useChessGame = () => {
         }
     };
 
-    const goToMove = useCallback((index) => {
+const handleResign = async () => {
+    if (!window.confirm("Biztosan feladod?")) return;
+    if (!gameId || !token) return;
+
+    try {
+        const res = await axios.post(`${API_BASE}/resign-game`, 
+            { game_id: gameId }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (res.data.status === "resigned") {
+            // A Backend (game.py) már kiszámolja ki nyert, és visszaküldi a 'reason'-t
+            // pl: "Black wins by resignation"
+            setReason(res.data.reason || "Game resigned"); 
+            
+            setStatus("resigned"); 
+            playSound('game-end');
+            localStorage.removeItem('chessGameId');
+            
+            // Frissítsük a history-t, hogy a MoveList is lássa a végét
+            fetchGameState(gameId);
+        }
+    } catch (err) { console.error("Resign error:", err); }
+};
+
+const offerDraw = async () => {
+    if (!window.confirm("Döntetlent ajánlasz?")) return;
+    if (!gameId || !token) return;
+
+    try {
+        const res = await axios.post(`${API_BASE}/offer-draw`, 
+            { game_id: gameId }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (res.data.status === "draw") {
+            setReason(res.data.reason || "Draw by agreement");
+            setStatus("draw");
+            playSound('game-end');
+            localStorage.removeItem('chessGameId');
+        }
+    } catch (err) {
+        console.error("Draw offer error:", err);
+    }
+};
+
+   const goToMove = useCallback((index) => {
         setSelectedSquare(null);
         if (index === -1 || index >= history.length - 1) {
             setViewIndex(-1);
@@ -202,133 +351,12 @@ export const useChessGame = () => {
         }
     }, [history]);
 
-    const startNewGame = useCallback(async (difficulty = 400, color = 'white') => {
-    try {
-        let finalColor = color;
-        if (color === 'random') {
-            finalColor = Math.random() < 0.5 ? 'white' : 'black';
-        }
-
-        const res = await axios.post(`${API_BASE}/create-game`,
-            { 
-                user_id: userId, 
-                difficulty: difficulty, 
-                color: finalColor,
-                time_category: "rapid", 
-                base_time: 600 
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        const newId = res.data.game_id;
-        localStorage.setItem('chessGameId', newId);
-        setGameId(newId);
-        setFen(res.data.fen); 
-        
-        setLastMove({ from: null, to: null });
-        setHistory([]);
-        setViewIndex(-1);
-        setStatus("ongoing");
-        
-        await fetchGameState(newId); 
-        playSound('game-start');
-        
-        return finalColor; // Ezt a színt fogja használni a GameBoard a flip-hez
-    } catch (err) { 
-        console.error("Hiba az új játék indításakor:", err); 
-        return 'white';
-    }
-}, [userId, token, API_BASE, playSound, fetchGameState]);
-
-const handleResign = async () => {
-    if (!window.confirm("Biztosan feladod?")) return;
-    if (!gameId || !token) return;
-
-    try {
-        const res = await axios.post(`${API_BASE}/resign-game`, 
-            { game_id: gameId }, 
-            { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-
-        if (res.data.status === "resigned") {
-            playSound('game-end'); 
-            
-            // AZONNALI FRISSÍTÉS A BACKEND VÁLASZA ALAPJÁN
-            setReason(res.data.reason); 
-            setStatus("resigned");
-            
-            // Itt ne hívjuk meg a fetchGameState-et rögtön, 
-            // mert a polling (useEffect) felülírhatja a reason-t amíg a DB frissül
-            localStorage.removeItem('chessGameId');
-        }
-    } catch (err) { 
-        console.error("Resign error:", err); 
-    }
-};
-
-const offerDraw = async () => {
-    if (!window.confirm("Döntetlent ajánlasz az ellenfélnek?")) return;
-    if (!gameId || !token) return;
-
-    try {
-        const res = await axios.post(`${API_BASE}/offer-draw`, 
-            { game_id: gameId }, 
-            { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-
-        if (res.data.status === "draw") {
-            playSound('game-end'); 
-            setReason(res.data.reason); 
-            setStatus("draw");
-            localStorage.removeItem('chessGameId');
-        }
-    } catch (err) {
-        console.error("Draw offer error:", err);
-    }
-};
-
-    // Polling hangkezelés az eredeti szerint
-    useEffect(() => {
-        let interval;
-        if (gameId && status === "ongoing") {
-            interval = setInterval(async () => {
-                try {
-                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-                    if (res.data.history && res.data.history.length !== history.length) {
-                        const newHistory = res.data.history;
-                        const latestMove = newHistory[newHistory.length - 1];
-                        const m = latestMove.m;
-
-                        setHistory(newHistory);
-                        if (res.data.status) setStatus(res.data.status);
-                        
-                        if (newHistory.length % 2 === 0 && latestMove.fen !== fen) {
-                            setFen(latestMove.fen);
-                            setLastMove({ from: latestMove.from, to: latestMove.to });
-
-                            setTimeout(() => {
-                                if (m.includes('#')) playSound('checkmate');
-                                else if (m.includes('+')) playSound('move-check');
-                                else if (m.includes('O-O')) playSound('castle');
-                                else if (m.includes('x')) playSound('capture');
-                                else playSound('move');
-                            }, 220);
-                        }
-                    }
-                } catch (e) {}
-            }, 3000);
-        }
-        return () => clearInterval(interval);
-    }, [gameId, fen, status, token, API_BASE, playSound, history.length]);
-
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves,
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging,
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset,
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
-        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw
+        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, userChoiceColor,difficultyChoice, resetGame
     };
 };

@@ -14,10 +14,19 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
         viewIndex, getSquareName, isFlipped 
     } = gameLogic;
 
-    let whiteKingSquare = null;
+    // --- JAVÍTOTT RÉSZ: Meghatározzuk az AKTUÁLIS király helyét ---
+    let activeKingSquare = null;
     try {
         const gameInstance = new Chess(fen);
-        whiteKingSquare = gameInstance.board().flat().find(p => p && p.type === 'k' && p.color === 'w')?.square;
+        const board = gameInstance.board().flat();
+        
+        // Megkeressük mindkét királyt
+        const whiteKing = board.find(p => p && p.type === 'k' && p.color === 'w')?.square;
+        const blackKing = board.find(p => p && p.type === 'k' && p.color === 'b')?.square;
+
+        // Ha isFlipped, akkor mi sötéttel vagyunk, tehát a fekete király villanjon. 
+        // Különben a fehér.
+        activeKingSquare = isFlipped ? blackKing : whiteKing;
     } catch (error) { console.warn(error); }
 
     const fenRows = fen.split(' ')[0].split('/');
@@ -52,7 +61,9 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
             const isHoverActive = isDragging && selectedSquare && sqName === hoverSquare;
             
             let currentBgColor = isDark ? 'bg-chess-dark' : 'bg-chess-light';
-            if (isAlert && sqName === whiteKingSquare) {
+            
+            // --- JAVÍTOTT RÉSZ: activeKingSquare használata a villanáshoz ---
+            if (isAlert && sqName === activeKingSquare) {
                 currentBgColor = isDark ? 'bg-[#DC2712]' : 'bg-[#FD1D19]';
             } else if (isSelected || isLast) {
                 currentBgColor = isDark ? 'bg-[#b9cb43]' : 'bg-[#f5f681]';
@@ -76,14 +87,14 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         zIndex: sqName === hoverSquare ? 30 : 1
                     }}
                 >
-                    {/* SZÁMOK */}
+                    {/* SZÁMOK - Változatlanul hagyva */}
                     {(isFlipped ? j === 7 : j === 0) && (
                         <span className={`absolute top-0.5 left-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {8 - i}
                         </span>
                     )}
 
-                    {/* BETŰK */}
+                    {/* BETŰK - Változatlanul hagyva */}
                     {(isFlipped ? i === 0 : i === 7) && (
                         <span className={`absolute bottom-0.5 right-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'][j]}
@@ -105,8 +116,6 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                     {piece && (!isDragging || selectedSquare !== sqName) && (
                         <motion.img
                             layout
-                            // --- MEGOLDÁS: isFlipped hozzáadása a layoutId-hoz és key-hez ---
-                            // Ha az isFlipped változik, a layoutId is változik, így a Framer nem animálja a mozgást
                             layoutId={`sq-${sqName}-${isFlipped}`}
                             key={`piece-${sqName}-${piece}-${isFlipped}`}
                             src={`/assets/pieces/${piecesMap[piece]}.png`}

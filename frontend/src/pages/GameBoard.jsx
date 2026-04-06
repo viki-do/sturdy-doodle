@@ -182,140 +182,167 @@ const GameBoard = () => {
     }, [token]);
 
     // Egér követése
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (isDragging) {
-                setMousePos({ x: e.clientX, y: e.clientY });
-                const board = document.getElementById('chess-board')?.getBoundingClientRect();
-                if (board) {
-                    const col = Math.floor((e.clientX - board.left) / (board.width / 8));
-                    const row = Math.floor((e.clientY - board.top) / (board.height / 8));
-                    if (col >= 0 && col < 8 && row >= 0 && row < 8) setHoverSquare(getSquareName(row, col));
-                    else setHoverSquare(null);
+    // GameBoard.jsx - Egér követése (javítva a flipped táblához)
+useEffect(() => {
+    const handleMouseMove = (e) => {
+        if (isDragging) {
+            setMousePos({ x: e.clientX, y: e.clientY });
+            const board = document.getElementById('chess-board')?.getBoundingClientRect();
+            if (board) {
+                // Kiszámoljuk az oszlopot és sort (0-7)
+                let col = Math.floor((e.clientX - board.left) / (board.width / 8));
+                let row = Math.floor((e.clientY - board.top) / (board.height / 8));
+
+                // --- JAVÍTÁS: Ha a tábla meg van fordítva, tükrözzük a koordinátákat ---
+                if (isFlipped) {
+                    col = 7 - col;
+                    row = 7 - row;
+                }
+
+                if (col >= 0 && col < 8 && row >= 0 && row < 8) {
+                    setHoverSquare(getSquareName(row, col));
+                } else {
+                    setHoverSquare(null);
                 }
             }
-        };
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, [isDragging, getSquareName, setMousePos, setHoverSquare]);
+        }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+}, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]); // isFlipped hozzáadva a függőségekhez!
 
     return (
-        <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
-            <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
-                <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
+    <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
+        {/* Bal oldali sáv (Eval bar/statisztika) */}
+        <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
+            <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
+        </div>
+
+        {/* Középső rész: Tábla és nevek */}
+        <div className="flex flex-col justify-center items-center h-full shrink-0">
+            {/* Felső játékos név */}
+            <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
+                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                    <i className="fas fa-user text-[#808080] text-xl"></i>
+                </div>
+                <span className="text-[#bab9b8] font-bold text-[14px]">
+                    {isFlipped ? 'You' : 'Opponent'}
+                </span>
             </div>
 
-            <div className="flex flex-col justify-center items-center h-full shrink-0">
-                <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
-                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                        <i className="fas fa-user text-[#808080] text-xl"></i>
-                    </div>
-                    <span className="text-[#bab9b8] font-bold text-[14px]">
-                        {isFlipped ? 'You' : 'Opponent'}
-                    </span>
-                </div>
+            {/* SAKKTÁBLA KONTRÉNER */}
+            <div className="relative shrink-0 p-0 m-0">
+                <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative" 
+                     style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
+                    
+                    <ChessBoardGrid 
+                        gameLogic={{ ...gameLogic, isFlipped }} 
+                        onMouseDown={handleMouseDown} 
+                        onMouseUp={handleMouseUp} 
+                    />
+                    
+                    {/* Promóciós választó */}
+                    <AnimatePresence>
+                        {pendingPromotion && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+                                className="absolute z-5000 bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
+                                style={{ 
+                                    left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`, 
+                                    top: ((!isFlipped && pendingPromotion.to.endsWith('8')) || (isFlipped && pendingPromotion.to.endsWith('1'))) ? '0' : 'auto', 
+                                    bottom: ((!isFlipped && pendingPromotion.to.endsWith('1')) || (isFlipped && pendingPromotion.to.endsWith('8'))) ? '0' : 'auto', 
+                                    width: '12.5%' 
+                                }}>
+                                {['q', 'n', 'r', 'b'].map((type) => (
+                                    <button key={type} onClick={() => gameLogic.executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
+                                        <img src={`/assets/pieces/${isFlipped ? 'black' : 'white'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
+                                    </button>
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                    
+                    {/* GAME OVER POPUP */}
+                    <AnimatePresence>
+                        {delayedShowPopup && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+                                className="absolute inset-0 bg-black/40 flex items-center justify-center z-9999 rounded-sm pointer-events-auto">
+                                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl max-w-sm w-85 relative">
+                                    <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} className="absolute top-4 right-5 text-[#989795] hover:text-white text-xl cursor-pointer">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                    <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">
+                                        {status === "checkmate" ? "Checkmate" : status === "resigned" ? "Resigned" : "Game Over"}
+                                    </h1>
 
-                <div className="relative shrink-0 p-0 m-0">
-                    <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative" 
-                         style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
-                        
-                        <ChessBoardGrid 
-                            gameLogic={{ ...gameLogic, isFlipped }} 
-                            onMouseDown={handleMouseDown} 
-                            onMouseUp={handleMouseUp} 
-                        />
-                        
-                        <AnimatePresence>
-                            {pendingPromotion && (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
-                                    className="absolute z-[5000] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
-                                    style={{ 
-                                        left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`, 
-                                        top: ((!isFlipped && pendingPromotion.to.endsWith('8')) || (isFlipped && pendingPromotion.to.endsWith('1'))) ? '0' : 'auto', 
-                                        bottom: ((!isFlipped && pendingPromotion.to.endsWith('1')) || (isFlipped && pendingPromotion.to.endsWith('8'))) ? '0' : 'auto', 
-                                        width: '12.5%' 
-                                    }}>
-                                    {['q', 'n', 'r', 'b'].map((type) => (
-                                        <button key={type} onClick={() => gameLogic.executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
-                                            <img src={`/assets/pieces/${isFlipped ? 'black' : 'white'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
+                                    <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">
+                                        {reason || (status === "resigned" ? 
+                                            (isFlipped ? "White wins by resignation" : "Black wins by resignation") : 
+                                            "Match finished"
+                                        )}
+                                    </p>
+                                    <div className="flex flex-col gap-3">
+                                        <button onClick={() => { 
+                                            setDelayedShowPopup(false); 
+                                            gameLogic.resetGame(); // AZONNALI RESET
+                                            setIsSelectingBot(true);
+                                        }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95 cursor-pointer">
+                                            New Game
                                         </button>
-                                    ))}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                        
-                        <AnimatePresence>
-                            {delayedShowPopup && (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
-                                    className="absolute inset-0 bg-black/40 flex items-center justify-center z-[9999] rounded-sm pointer-events-auto">
-                                    <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl max-w-sm w-85 relative">
-                                        <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} className="absolute top-4 right-5 text-[#989795] hover:text-white text-xl cursor-pointer">
-                                            <i className="fas fa-times"></i>
+                                        <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} 
+                                            className="w-full py-3 bg-transparent text-[#bab9b8] rounded-xl text-lg font-bold hover:text-white transition-colors cursor-pointer">
+                                            Review Game
                                         </button>
-                                        <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">
-                                            {status === "checkmate" ? "Checkmate" : status === "resigned" ? "Resigned" : "Game Over"}
-                                        </h1>
-                                        <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">{reason}</p>
-                                        <div className="flex flex-col gap-3">
-                                            <button onClick={() => { 
-                                                setDelayedShowPopup(false); 
-                                                setGameId(null); 
-                                                localStorage.removeItem('chessGameId'); 
-                                                setIsSelectingBot(true);
-                                            }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95 cursor-pointer">
-                                                New Game
-                                            </button>
-                                            <button onClick={() => { setDelayedShowPopup(false); setIsPopupClosed(true); }} 
-                                                className="w-full py-3 bg-transparent text-[#bab9b8] rounded-xl text-lg font-bold hover:text-white transition-colors cursor-pointer">
-                                                Review Game
-                                            </button>
-                                        </div>
-                                    </motion.div>
+                                    </div>
                                 </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </div>
-
-                <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
-                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                        <i className="fas fa-user text-[#808080] text-xl"></i>
-                    </div>
-                    <span className="text-[#bab9b8] font-bold text-[14px]">
-                        {isFlipped ? 'Opponent' : 'You'}
-                    </span>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
-            <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
-                {isGameActive ? (
-                    <MoveListPanel 
-                        {...gameLogic} 
-                        reason={reason}
-                        setGameId={setGameId}
-                        goToMove={goToMove} 
-                        renderNotation={renderNotation}
-                        isPopupClosed={isPopupClosed} 
-                        isPopupVisible={delayedShowPopup}
-                        isFlipped={isFlipped}
-                        onFlipBoard={() => setIsFlipped(!isFlipped)}
-                        setIsSelectingBot={setIsSelectingBot}
-                        offerDraw={gameLogic.offerDraw}
-                    />
-                ) : isSelectingBot ? (
-                    <BotSelectionPanel 
-                        onBack={() => setIsSelectingBot(false)} 
-                        onSelectBot={handleBotSelect} 
-                    />
-                ) : (
-                    <PlaySelectionPanel 
-                        onStartGame={startNewGame} 
-                        onPlayBots={() => setIsSelectingBot(true)} 
-                    />
-                )}
+            {/* Alsó játékos név */}
+            <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
+                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                    <i className="fas fa-user text-[#808080] text-xl"></i>
+                </div>
+                <span className="text-[#bab9b8] font-bold text-[14px]">
+                    {isFlipped ? 'Opponent' : 'You'}
+                </span>
             </div>
         </div>
-    );
+
+        {/* JOBB OLDALI PANEL (Vezérlők és választók) */}
+        <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
+            {isGameActive ? (
+                <MoveListPanel 
+                    {...gameLogic} 
+                    setGameId={setGameId}
+                    goToMove={goToMove} 
+                    renderNotation={renderNotation}
+                    isPopupClosed={isPopupClosed} 
+                    isPopupVisible={delayedShowPopup}
+                    isFlipped={isFlipped}
+                    onFlipBoard={() => setIsFlipped(!isFlipped)}
+                    setIsSelectingBot={setIsSelectingBot}
+                    offerDraw={gameLogic.offerDraw}
+                    resetGame={gameLogic.resetGame} // Reset átadva a New Game tabhoz
+                    userChoiceColor={gameLogic.userChoiceColor} // Rematch-hez
+                    difficultyChoice={gameLogic.difficultyChoice} // Rematch-hez
+                />
+            ) : isSelectingBot ? (
+                <BotSelectionPanel 
+                    onBack={() => setIsSelectingBot(false)} 
+                    onSelectBot={handleBotSelect} 
+                />
+            ) : (
+                <PlaySelectionPanel 
+                    onStartGame={startNewGame} 
+                    onPlayBots={() => setIsSelectingBot(true)} 
+                />
+            )}
+        </div>
+    </div>
+);
 };
 
 export default GameBoard;

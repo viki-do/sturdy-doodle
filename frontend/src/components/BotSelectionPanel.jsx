@@ -12,8 +12,8 @@ const bots = [
 const BotSelectionPanel = ({ onBack, onSelectBot }) => {
     const [selectedColor, setSelectedColor] = useState('white');
     return (
-        <div className="w-full h-full bg-[#262421] flex flex-col font-sans border border-[#312e2b] rounded-xl overflow-hidden">
-            <div className="p-4 bg-[#21201d] border-b border-[#1b1a18] flex items-center gap-3">
+        <div className="w-full h-full bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden">
+            <div className="p-4 bg-chess-panel-header border-b border-[#1b1a18] flex items-center gap-3">
                 <button onClick={onBack} className="text-[#989795] hover:text-white transition-colors">
                     <i className="fas fa-chevron-left"></i>
                 </button>
@@ -27,7 +27,7 @@ const BotSelectionPanel = ({ onBack, onSelectBot }) => {
                         key={c}
                         onClick={() => setSelectedColor(c)}
                         className={`px-4 py-2 rounded font-bold uppercase text-xs transition-all border-2 
-                        ${selectedColor === c ? 'border-[#81b64c] bg-[#312e2b] text-white' : 'border-transparent bg-[#21201d] text-[#989795]'}`}
+                        ${selectedColor === c ? 'border-[#81b64c] bg-chess-bg text-white' : 'border-transparent bg-chess-panel-header text-[#989795]'}`}
                     >
                         {c === 'random' ? <i className="fas fa-dice"></i> : c}
                     </button>

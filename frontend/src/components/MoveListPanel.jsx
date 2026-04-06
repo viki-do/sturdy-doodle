@@ -15,7 +15,10 @@ const MoveListPanel = ({
     setIsSelectingBot,
     setGameId,
     reason,
-    offerDraw
+    offerDraw,
+    userChoiceColor,      // ÚJ: A hook-ból jön
+    difficultyChoice,    // ÚJ: A hook-ból jön
+    resetGame
 }) => {
     const isOngoing = status === "ongoing";
     const isGameOver = status === "resigned" || status === "checkmate" || status === "draw" || status === "stalemate";
@@ -35,62 +38,57 @@ const MoveListPanel = ({
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
     // --- EREDMÉNY MEGHATÁROZÁSA ---
-  const getResultData = () => {
-    if (!isGameOver) return null;
-    
-    // 1. Elsődleges forrás: A backend által küldött pontos 'reason' szöveg
-    if (reason) {
-        const rLower = reason.toLowerCase();
+    const getResultData = () => {
+        if (!isGameOver) return null;
         
-        // Győzelmek kezelése
-        if (rLower.includes("white wins")) {
-            return { 
-                score: "1-0", 
-                winnerText: "White Won", 
-                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
-            };
-        }
-        if (rLower.includes("black wins")) {
-            return { 
-                score: "0-1", 
-                winnerText: "Black Won", 
-                reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
-            };
+        if (reason) {
+            const rLower = reason.toLowerCase();
+            
+            if (rLower.includes("white wins")) {
+                return { 
+                    score: "1-0", 
+                    winnerText: "White Won", 
+                    reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
+                };
+            }
+            if (rLower.includes("black wins")) {
+                return { 
+                    score: "0-1", 
+                    winnerText: "Black Won", 
+                    reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
+                };
+            }
+
+            if (rLower.includes("draw")) {
+                const reasonDetail = reason.replace(/Draw\s+/i, ""); 
+                return { 
+                    score: "1/2-1/2", 
+                    winnerText: "Draw", 
+                    reasonText: reasonDetail || "by Rule" 
+                };
+            }
         }
 
-        // Döntetlenek kezelése a backend üzenete alapján (Agreement, Stalemate, Repetition, stb.)
-        if (rLower.includes("draw")) {
-            // Kivonjuk a "Draw " részt, hogy csak az indok maradjon (pl. "by stalemate")
-            const reasonDetail = reason.replace(/Draw\s+/i, ""); 
-            return { 
-                score: "1/2-1/2", 
-                winnerText: "Draw", 
-                reasonText: reasonDetail || "by Rule" 
-            };
+        // Fallback
+        if (status === "resigned") {
+            return isFlipped 
+                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
+                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
         }
-    }
+        
+        if (status === "checkmate") {
+            const isWhiteLast = (movesOnly.length % 2 !== 0);
+            return isWhiteLast 
+                ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
+                : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
+        }
 
-    // 2. Fallback: Ha a reason valamiért nem elérhető, a status alapján döntünk
-    if (status === "resigned") {
-        return isFlipped 
-            ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
-            : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
-    }
-    
-    if (status === "checkmate") {
-        const isWhiteLast = (movesOnly.length % 2 !== 0);
-        return isWhiteLast 
-            ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
-            : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
-    }
-
-    // Alapértelmezett döntetlen fallback
-    if (status === "draw" || status === "stalemate") {
-        return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
-    }
-    
-    return { score: "*", winnerText: "Game Over", reasonText: "" };
-};
+        if (status === "draw" || status === "stalemate") {
+            return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
+        }
+        
+        return { score: "*", winnerText: "Game Over", reasonText: "" };
+    };
 
     const result = getResultData();
 
@@ -101,8 +99,7 @@ const MoveListPanel = ({
             <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
                 <TopTab icon="fa-plus" label="New Game" onClick={() => { 
-                    localStorage.removeItem('chessGameId'); 
-                    setGameId(null); 
+                    resetGame(); // Ez a hookból jön, amit átadtál propként
                     setIsSelectingBot(true); 
                 }} />
                 <TopTab icon="fa-th" label="Games" />
@@ -166,21 +163,33 @@ const MoveListPanel = ({
 
             {/* Alsó vezérlők */}
             <div className="bg-chess-panel-header flex flex-col border-t border-[#1b1a18]">
-                {showEndGameUI && (
-                    <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
-                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
-                            <i className="fas fa-microscope"></i> Game Review
-                        </button>
-                        <div className="grid grid-cols-2 gap-2 pt-3">
-                            <button onClick={() => { localStorage.removeItem('chessGameId'); setGameId(null); setIsSelectingBot(true); }} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
-                                <i className="fas fa-plus"></i> New Bot
-                            </button>
-                            <button onClick={() => startNewGame(400)} className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95">
-                                <i className="fas fa-sync-alt"></i> Rematch
-                            </button>
-                        </div>
-                    </div>
-                )}
+    {showEndGameUI && (
+        <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
+            <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
+                <i className="fas fa-microscope"></i> Game Review
+            </button>
+            <div className="grid grid-cols-2 gap-2 pt-3">
+                
+                {/* EZT A GOMBOT JAVÍTOTTUK KI: */}
+                <button 
+                    onClick={() => { 
+                        resetGame();          // 1. Alaphelyzetbe teszi a táblát
+                        setIsSelectingBot(true); // 2. Megnyitja a botválasztót
+                    }} 
+                    className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
+                >
+                    <i className="fas fa-plus"></i> New Bot
+                </button>
+
+                <button 
+                    onClick={() => startNewGame(difficultyChoice, userChoiceColor)} 
+                    className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
+                >
+                    <i className="fas fa-sync-alt"></i> Rematch
+                </button>
+            </div>
+        </div>
+    )}
 
                 <div className="p-3 flex gap-1 bg-chess-panel-header">
                     <NavBtn icon="fa-step-backward" onClick={() => goToMove(0)} active={viewIndex !== 0} />
@@ -210,7 +219,7 @@ const MoveListPanel = ({
                     {isOngoing ? (
                         <div className="flex gap-4 items-center">
                             <button 
-                                onClick={offerDraw} // <--- Ezt ellenőrizd!
+                                onClick={offerDraw}
                                 className="flex items-center gap-2 hover:text-white transition-colors"
                             >
                                 <i className="fas fa-half-circle text-sm"></i>
@@ -235,6 +244,7 @@ const MoveListPanel = ({
     );
 };
 
+// ... TopTab és NavBtn definíciók változatlanok ...
 const TopTab = ({ icon, label, active, onClick }) => (
     <div onClick={onClick} className={`flex flex-col items-center py-2 px-1 flex-1 cursor-pointer transition-colors border-b-2 ${active ? 'bg-[#262421] border-[#81b64c] text-white' : 'border-transparent text-[#989795] hover:bg-[#2b2926]'}`}>
         <i className={`fas ${icon} text-lg mb-1`}></i>
