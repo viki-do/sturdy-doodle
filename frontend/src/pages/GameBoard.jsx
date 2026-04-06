@@ -14,6 +14,7 @@ const GameBoard = () => {
     const [delayedShowPopup, setDelayedShowPopup] = useState(false);
     const [isPopupClosed, setIsPopupClosed] = useState(false); 
     const [isFlipped, setIsFlipped] = useState(false);
+    const [selectedTime, setSelectedTime] = useState("No Timer");
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
@@ -156,12 +157,13 @@ const GameBoard = () => {
         }
     };
 
-    // --- ÚJ: HIÁNYZÓ BOT VÁLASZTÁS KEZELŐ ---
-  const handleBotSelect = async (elo, color) => {
+    // ---BOT VÁLASZTÁS KEZELŐ ---
+  const handleBotSelect = async (elo, color, time) => {
+    setSelectedTime(time); // Elmentjük a választott időt
     const finalColor = await startNewGame(elo, color); 
     if (finalColor) {
         setIsSelectingBot(false); 
-        setIsFlipped(finalColor === 'black'); // Ha fekete vagy, megfordítjuk
+        setIsFlipped(finalColor === 'black');
     }
 };
 
@@ -211,23 +213,47 @@ useEffect(() => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
 }, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]); // isFlipped hozzáadva a függőségekhez!
 
+// GameBoard.jsx - a return elé
+const formatTime = (timeStr) => {
+    // Ha No Timer, vagy üres, akkor üres stringet adunk vissza
+    if (!timeStr || timeStr === "No Timer") return "";
+    
+    const basePart = timeStr.includes('|') ? timeStr.split('|')[0].trim() : timeStr;
+    const mins = basePart.replace(/[^0-9]/g, '');
+    return `${mins}:00`;
+};
+
+const handleTimeChange = (time) => {
+    setSelectedTime(time);
+};
+
     return (
     <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
-        {/* Bal oldali sáv (Eval bar/statisztika) */}
+        {/* Bal oldali sáv (Eval bar) */}
         <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
-            <div className="bg-white w-full h-[50%] transition-all duration-500 shadow-[0_0_10px_rgba(255,255,255,0.1)]"></div>
+            <div className="bg-white w-full h-[50%] transition-all"></div>
         </div>
 
-        {/* Középső rész: Tábla és nevek */}
         <div className="flex flex-col justify-center items-center h-full shrink-0">
-            {/* Felső játékos név */}
-            <div className="w-170 flex items-center gap-3 px-1 h-12 mb-1 shrink-0">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                    <i className="fas fa-user text-[#808080] text-xl"></i>
+            {/* FELSŐ SZEKCIÓ: Név és ÓRA */}
+            <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                        <i className="fas fa-user text-[#808080] text-xl"></i>
+                    </div>
+                    <span className="text-[#bab9b8] font-bold text-[14px]">
+                        {isFlipped ? 'You' : 'Opponent'}
+                    </span>
                 </div>
-                <span className="text-[#bab9b8] font-bold text-[14px]">
-                    {isFlipped ? 'You' : 'Opponent'}
-                </span>
+                {/* ELLENFÉL ÓRÁJA (Csak ha nem No Timer) */}
+                {selectedTime !== "No Timer" && (
+                    <div className="bg-[#262421] px-4 py-1.5 rounded flex items-center gap-2 border border-white/10 min-w-[100px] justify-center">
+                        <i className="fas fa-minus-circle text-[#989795] text-xs"></i>
+                        <span className="text-white font-sans font-semibold text-2xl tabular-nums leading-none">
+                            {formatTime(selectedTime)}
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* SAKKTÁBLA KONTRÉNER */}
@@ -300,14 +326,25 @@ useEffect(() => {
                 </div>
             </div>
 
-            {/* Alsó játékos név */}
-            <div className="w-170 flex items-center gap-3 px-1 h-12 mt-1 shrink-0">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                    <i className="fas fa-user text-[#808080] text-xl"></i>
+            {/* ALSÓ SZEKCIÓ: Saját név és ÓRA */}
+            <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                        <i className="fas fa-user text-[#808080] text-xl"></i>
+                    </div>
+                    <span className="text-[#bab9b8] font-bold text-[14px]">
+                        {isFlipped ? 'Opponent' : 'You'}
+                    </span>
                 </div>
-                <span className="text-[#bab9b8] font-bold text-[14px]">
-                    {isFlipped ? 'Opponent' : 'You'}
-                </span>
+                {/* SAJÁT ÓRÁD */}
+                {selectedTime !== "No Timer" && (
+                    <div className="bg-white px-4 py-1.5 rounded flex items-center gap-2 shadow-lg min-w-[100px] justify-center">
+                        <i className="fas fa-minus-circle text-[#2b2a27] text-xs"></i>
+                        <span className="text-[#2b2a27] font-sans font-semibold text-2xl tabular-nums leading-none">
+                            {formatTime(selectedTime)}
+                        </span>
+                    </div>
+                )}
             </div>
         </div>
 
@@ -333,12 +370,10 @@ useEffect(() => {
                 <BotSelectionPanel 
                     onBack={() => setIsSelectingBot(false)} 
                     onSelectBot={handleBotSelect} 
+                    onTimeChange={(time) => setSelectedTime(time)} // Ezt a függvényt kell átadni az azonnali óra-frissítéshez
                 />
             ) : (
-                <PlaySelectionPanel 
-                    onStartGame={startNewGame} 
-                    onPlayBots={() => setIsSelectingBot(true)} 
-                />
+                <PlaySelectionPanel onPlayBots={() => setIsSelectingBot(true)} />
             )}
         </div>
     </div>
