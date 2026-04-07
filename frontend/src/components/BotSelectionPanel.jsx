@@ -1,15 +1,25 @@
 import React, { useState, useEffect } from 'react';
 
 const botCategories = [
-    { id: 'beginner', name: 'Beginner', elo: 250, icon: 'https://www.chess.com/bundles/web/images/offline-play/martin.png', bots: [
-        { id: 'martin', name: 'Martin', elo: 250, img: 'https://www.chess.com/bundles/web/images/offline-play/martin.png' },
-        { id: 'elenore', name: 'Elenore', elo: 400, img: 'https://www.chess.com/bundles/web/images/offline-play/elenore.png' }
+    { id: 'beginner', name: 'Beginner', elo: 250, icon:'../assets/bot-players/martin.png', bots: [
+        { id: 'martin', name: 'Martin', elo: 250, img: '../assets/bot-players/martin.png' },
+        { id: 'elenore', name: 'Elenore', elo: 400, img: '../assets/bot-players/elenore.png' }
     ]},
-    { id: 'intermediate', name: 'Intermediate', elo: 1000, icon: 'https://www.chess.com/bundles/web/images/offline-play/wayne.png', bots: [
-        { id: 'wayne', name: 'Wayne', elo: 1000, img: 'https://www.chess.com/bundles/web/images/offline-play/wayne.png' }
+    { id: 'intermediate', name: 'Intermediate', elo: 1000, icon: '../assets/bot-players/laura.png', bots: [
+        { id: 'laura', name: 'Laura', elo: 1000, img: '../assets/bot-players/laura.png' },
+        { id: 'sven', name: 'Sven', elo: 1300, img: '../assets/bot-players/sven.png' }
     ]},
-    { id: 'top_players', name: 'Top Players', elo: 2800, icon: 'https://www.chess.com/bundles/web/images/offline-play/hikaru.png', bots: [
-        { id: 'hikaru', name: 'Hikaru', elo: 2820, img: 'https://www.chess.com/bundles/web/images/offline-play/hikaru.png', country: '🇺🇸' }
+    { id: 'advanced', name: 'Advanced', elo: 1500, icon: '../assets/bot-players/pierre.png', bots: [
+        { id: 'isabel', name: 'Isabel', elo: 1500, img: '../assets/bot-players/isabel.png' },
+        { id: 'pierre', name: 'Pierre', elo: 1900, img: '../assets/bot-players/pierre.png' }
+    ]},
+    { id: 'master', name: 'Master', elo: 2220, icon: '../assets/bot-players/nora.png', bots: [
+        { id: 'nora', name: 'Nora', elo: 2220, img: '../assets/bot-players/nora.png' },
+        { id: 'wei', name: 'Wei', elo: 2450, img: '../assets/bot-players/wei.png' }
+    ]},
+    { id: 'top_players', name: 'Top Players', elo: 2820, icon: '../assets/bot-players/hikaru.png', bots: [
+        { id: 'hikaru', name: 'Hikaru', elo: 2820, img: '../assets/bot-players/hikaru.png', country: '🇺🇸' },
+        { id: 'magnus', name: 'Magnus', elo: 2882, img: '../assets/bot-players/magnus.png', country: 'no' }
     ]}
 ];
 
@@ -128,7 +138,7 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange })
                                 </span>
                             </div>
                         ) : (
-                            <img src={selectedBot?.img} alt="" className="w-24 h-24 rounded-xl object-cover shadow-2xl border-4 border-[#2b2a27]" />
+                            <img src={selectedBot?.img} alt="" className="w-24 h-24 rounded-xl object-cover " />
                         )}
                     </div>
                     <div className="text-center">

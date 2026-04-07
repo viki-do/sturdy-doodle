@@ -19,7 +19,8 @@ const MoveListPanel = ({
     difficultyChoice,    
     resetGame,
     lastTimeControl,
-    result
+    result, 
+    opening, 
 
 }) => {
     const isOngoing = status === "ongoing";
@@ -122,6 +123,30 @@ const MoveListPanel = ({
 };
     return (
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
+
+            {/* MEGNYITÁS KIJELZŐ SZEKCIÓ */}
+            <div className="p-4 border-b border-[#3c3a37] bg-[#21201d] flex flex-col justify-center min-h-[70px] transition-all duration-500">
+                {opening ? (
+                    <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                            <span className="bg-[#3d3a37] text-[#bab9b8] text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                {opening.eco}
+                            </span>
+                            {/* Ha a jelenlegi lépésszám (history.length) sokkal nagyobb, mint ahol a megnyitást találtuk, 
+                                írhatjuk hogy "Theory followed", egyébként "Theory" */}
+                            <span className="text-[#8b8987] text-[11px] font-bold uppercase tracking-tight italic">
+                                Opening
+                            </span>
+                        </div>
+                        <div className="text-white font-bold text-[15px] leading-tight truncate">
+                            {opening.name}
+                        </div>
+                    </div>
+                ) : (
+                    // Csak akkor, ha az 1. lépéstől kezdve nem ismerte fel (ritka)
+                    <div className="text-[#636261] text-sm italic">Initial Phase</div>
+                )}
+            </div>
             
             {/* Felső Tabok */}
             <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">

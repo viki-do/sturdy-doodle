@@ -38,6 +38,7 @@ export const useChessGame = () => {
     const [increment, setIncrement] = useState(0); 
     const whiteWarnedRef = useRef(false);
     const blackWarnedRef = useRef(false);
+    const [opening, setOpening] = useState(null);
    
 
 
@@ -99,6 +100,11 @@ export const useChessGame = () => {
                     }
                 }
             }
+            if (res.data.opening) {
+                setOpening(res.data.opening);
+            } else {
+                setOpening(null); // Tisztítás, ha nincs megnyitás
+            }
         } catch (err) { console.error("Hiba:", err); }
     }, [token, API_BASE]);
 
@@ -116,7 +122,7 @@ export const useChessGame = () => {
     const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
     if (!moveAttempt) return;
 
-    // --- AZONNALI HISTORY FRISSÍTÉS (Hogy rögtön lásd a listában) ---
+    // --- AZONNALI HISTORY FRISSÍTÉS ---
     const moveTime = (parseTimeControl(lastTimeControl).base - (activeTimeColor === 'w' ? whiteTime : blackTime)).toFixed(1);
     
     const myMoveForHistory = {
@@ -124,14 +130,13 @@ export const useChessGame = () => {
         from: from,
         to: to,
         fen: chess.fen(),
-        t: Math.abs(moveTime), // Eltelt idő kiszámítása
+        t: Math.abs(moveTime),
         num: lastPlayedMoveNum.current + 1
     };
 
-    // Ezzel a sorral azonnal bekerül a MoveListPanel-be a lépésed
     setHistory(prev => [...prev, myMoveForHistory]);
 
-    // --- SAJÁT LÉPÉS IDŐVÁLTÁSA ÉS BÓNUSZ ---
+    // --- SAJÁT LÉPÉS IDŐVÁLTÁSA ---
     if (activeTimeColor) {
         if (activeTimeColor === 'w') {
             setWhiteTime(prev => prev + increment); 
@@ -151,29 +156,15 @@ export const useChessGame = () => {
     setIsDragging(false);
     lastPlayedMoveNum.current += 1;
 
-    // --- SAJÁT LÉPÉS HANGJAI (JAVÍTOTT PRIORITÁS) ---
+    // --- SAJÁT LÉPÉS HANGJAI ---
     setTimeout(() => {
-        if (chess.isCheckmate()) {
-            playSound('checkmate');
-        } 
-        else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) {
-            playSound('stalemate');
-        }
-        else if (moveAttempt.flags.includes('p') || moveAttempt.flags.includes('cp')) {
-            playSound('promote');
-        }
-        else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) {
-            playSound('castle');
-        }
-        else if (chess.isCheck()) {
-            playSound('move-check');
-        }
-        else if (moveAttempt.captured || moveAttempt.flags.includes('e')) {
-            playSound('capture');
-        }
-        else {
-            playSound('move');
-        }
+        if (chess.isCheckmate()) playSound('checkmate');
+        else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
+        else if (moveAttempt.flags.includes('p') || moveAttempt.flags.includes('cp')) playSound('promote');
+        else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
+        else if (chess.isCheck()) playSound('move-check');
+        else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
+        else playSound('move');
     }, 10);
 
     try {
@@ -181,6 +172,13 @@ export const useChessGame = () => {
             { game_id: gameId, move: `${from}${to}${promotion || ""}` },
             { headers: { Authorization: `Bearer ${token}` } }
         );
+
+        // --- MEGNYITÁS MENTÉSE ---
+        if (res.data.opening) {
+            setOpening(res.data.opening);
+        } else {
+            setOpening(null);
+        }
 
         const bot = res.data.bot_move;
         if (bot && bot.from) {
@@ -196,37 +194,37 @@ export const useChessGame = () => {
                 else setWhiteTime(prev => prev + increment);
             }
 
-            // --- BOT LÉPÉSÉNEK HANGJAI (TELJES PRIORITÁSI LISTA) ---
+            // --- BOT LÉPÉSÉNEK HANGJAI (JAVÍTOTT PRIORITÁS) ---
             setTimeout(() => {
-                if (res.data.is_checkmate || res.data.status === "checkmate") {
-                    playSound('game-end'); 
-                    return;
-                } 
+                const isCheckmate = res.data.status === "checkmate";
+                const isDraw = res.data.status && res.data.status !== "ongoing" && !isCheckmate;
 
-                if (res.data.status && res.data.status !== "ongoing") {
-                    playSound('stalemate'); 
-                    return;
+                if (isCheckmate) {
+                    playSound('checkmate');
+                } 
+                else if (isDraw) {
+                    playSound('stalemate');
                 }
-
-                if (bot.san?.includes('=') || bot.flags?.includes('p') || bot.flags?.includes('cp')) {
+                // Szigorúbb feltétel: csak ha van '=' jel (promotion)
+                else if (bot.san?.includes('=')) {
                     playSound('promote');
-                } 
-                else if (bot.san?.includes('O-O') || bot.flags?.includes('k') || bot.flags?.includes('q')) {
-                    playSound('castle');
-                } 
-                else if (bot.is_check || bot.san?.includes('+')) {
+                }
+                // Sakk (+) prioritása magasabb, mint az ütésé vagy sima lépésé
+                else if (bot.san?.includes('+')) {
                     playSound('move-check');
-                } 
-                else if (bot.is_capture || bot.san?.includes('x')) {
+                }
+                else if (bot.san?.includes('O-O')) {
+                    playSound('castle');
+                }
+                else if (bot.san?.includes('x')) {
                     playSound('capture');
-                } 
+                }
                 else {
                     playSound('move');
                 }
             }, 220);
         }
         
-        // Fontos: Itt frissítjük a végleges history-t a szerverről
         fetchGameState(gameId);
     } catch (err) { 
         console.error("Hiba a lépés beküldésekor:", err);
@@ -599,5 +597,5 @@ const offerDraw = async () => {
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset,
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
-        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, userChoiceColor,difficultyChoice, resetGame, whiteTime, blackTime, activeTimeColor,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl   };
+        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, userChoiceColor,difficultyChoice, resetGame, whiteTime, blackTime, activeTimeColor,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl, opening, setOpening   };
 };

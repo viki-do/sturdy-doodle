@@ -16,6 +16,7 @@ const GameBoard = () => {
     const [isPopupClosed, setIsPopupClosed] = useState(false); 
     const [isFlipped, setIsFlipped] = useState(false);
     const [selectedTime, setSelectedTime] = useState("No Timer");
+    const [currentOpening, setCurrentOpening] = useState(null);
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
@@ -381,6 +382,7 @@ const GameBoard = () => {
                 {isGameActive ? (
                     <MoveListPanel 
                         {...gameLogic} 
+                        opening={gameLogic.opening}
                         status={status}
                         reason={reason}
                         selectedTime={selectedTime}

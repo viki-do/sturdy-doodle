@@ -1,7 +1,7 @@
 import os
 import jwt
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import RedirectResponse
@@ -49,7 +49,8 @@ def get_db():
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(hours=24)
+    # utcnow() helyett now(timezone.utc)
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

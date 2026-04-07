@@ -9,10 +9,87 @@ from database import SessionLocal
 # Importáljuk az auth segédfüggvényt
 from .auth import get_current_user_id
 import time
+import json
+import os
+
+OPENING_BOOK = {}
+
+def load_openings():
+    global OPENING_BOOK
+    # Az útvonal a data/openings mappára mutat
+    base_path = os.path.join("data", "openings")
+    
+    for letter in ['A', 'B', 'C', 'D', 'E']:
+        file_name = f"eco{letter}.json"
+        full_path = os.path.join(base_path, file_name)
+        
+        if os.path.exists(full_path):
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    OPENING_BOOK.update(data)
+            except Exception as e:
+                print(f"Hiba a {file_name} betöltésekor: {e}")
+    
+    print(f"Sakk könyvtár kész: {len(OPENING_BOOK)} megnyitás betöltve.")
+
+# Ez egyszer fusson le a szerver indulásakor
+load_openings()
+
+def get_opening_with_fallback(db: Session, game_id: uuid.UUID):
+    # Lekérjük a lépéseket a legújabbtól a legrégebbi felé (move_number DESC)
+    moves = db.query(models.Move).filter(
+        models.Move.game_id == game_id
+    ).order_by(models.Move.move_number.desc()).all()
+
+    for m in moves:
+        # Csak akkor nézzük meg, ha van elmentett FEN utána
+        fen_to_check = m.fen_after if m.fen_after else m.fen_before
+        if not fen_to_check:
+            continue
+            
+        parts = fen_to_check.split()
+        if len(parts) < 2:
+            continue
+
+        # Kulcs: pozíció és a soron következő szín
+        search_key = f"{parts[0]} {parts[1]}"
+        
+        # 1. Gyors keresés a szótárban
+        opening = OPENING_BOOK.get(search_key)
+        
+        # 2. Ha nincs meg, megnézzük a "startswith" módszerrel
+        if not opening:
+            for db_fen, info in OPENING_BOOK.items():
+                if db_fen.startswith(search_key):
+                    opening = info
+                    break
+        
+        # Ha találtunk nevet, azonnal visszaadjuk (ez a legfrissebb ismert elmélet)
+        if opening:
+            return {
+                "name": opening.get("name"),
+                "eco": opening.get("eco")
+            }
+
+    return None
 
 router = APIRouter(tags=["Chess Game"])
 
 STOCKFISH_PATH = "engine/stockfish.exe"
+
+# Globális változó a motornak
+engine_singleton = None
+
+def get_engine():
+    global engine_singleton
+    if engine_singleton is None:
+        try:
+            engine_singleton = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+        except Exception as e:
+            print(f"Hiba a Stockfish indításakor: {e}")
+            raise e
+    return engine_singleton
 
 def get_db():
     db = SessionLocal()
@@ -22,16 +99,29 @@ def get_db():
         db.close()
 
 def rebuild_board(game_id: uuid.UUID, db: Session):
+    # Csak a legutolsó lépést kérjük le (move_number alapján csökkenő sorrend, az első elem)
+    last_move = db.query(models.Move).filter(
+        models.Move.game_id == game_id
+    ).order_by(models.Move.move_number.desc()).first()
+
+    # Ha még nincs lépés (vagy csak a "start" sor van), alapállásból indulunk
+    if not last_move or last_move.notation == "start":
+        return chess.Board()
+
+    # Ha van mentett 'fen_after', azonnal abból töltjük be a táblát
+    if hasattr(last_move, 'fen_after') and last_move.fen_after:
+        return chess.Board(last_move.fen_after)
+
+    # TARTALÉK (Fallback): Ha valamiért nincs fen_after (pl. régi meccs), 
+    # akkor lefut a régi lassú algoritmusod
     moves = db.query(models.Move).filter(models.Move.game_id == game_id).order_by(models.Move.move_number.asc()).all()
     board = chess.Board()
     for m in moves:
         if m.notation == "start" or not m.notation: continue
-        parts = m.notation.split()
-        for p in parts:
-            try: board.push_san(p)
-            except:
-                try: board.push_uci(p)
-                except: continue
+        try: board.push_san(m.notation)
+        except:
+            try: board.push_uci(m.notation)
+            except: continue
     return board
 
 @router.post("/create-game")
@@ -47,14 +137,13 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         
         board = chess.Board()
         
-        # A sorsolt szín alapján rendeljük hozzá a User ID-t
         white_id = u_uuid if chosen_color == "white" else None
         black_id = u_uuid if chosen_color == "black" else None
 
         new_game = models.Game(
             white_player_id=white_id,
             black_player_id=black_id,
-            player_color=chosen_color, # Itt már a sorsolt szín lesz!
+            player_color=chosen_color,
             time_category=data.get("time_category", "rapid"),
             base_time_sec=data.get("base_time", 600),
             status=models.GameStatus.ongoing
@@ -63,8 +152,14 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         db.commit()
         db.refresh(new_game)
 
-        # 0. lépés: Start állapot mentése
-        db.add(models.Move(game_id=new_game.id, move_number=0, notation="start", fen_before=board.fen()))
+        # 0. lépés: Start állapot mentése (Itt a before és after megegyezik)
+        db.add(models.Move(
+            game_id=new_game.id, 
+            move_number=0, 
+            notation="start", 
+            fen_before=board.fen(), 
+            fen_after=board.fen()
+        ))
         db.commit()
 
         # --- BOT LÉPÉSE, HA A USER FEKETE ---
@@ -72,14 +167,21 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
             engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
             result = engine_proc.play(board, chess.engine.Limit(time=0.5))
             
+            # Adatok kinyerése a mentéshez
             move_san = board.san(result.move)
+            fen_elotte = board.fen()  # Alapállás
+            
+            board.push(result.move)   # Lépés végrehajtása a táblán
+            
+            fen_utana = board.fen()   # Állás a bot lépése után (pl. e4 utáni FEN)
+            
             bot_move = models.Move(
                 game_id=new_game.id,
                 move_number=1,
                 notation=move_san,
-                fen_before=board.fen()
+                fen_before=fen_elotte,
+                fen_after=fen_utana  # <--- Ez fontos az optimalizáláshoz!
             )
-            board.push(result.move) # Most már az e4 pozíció van a board-on
             db.add(bot_move)
             db.commit()
             engine_proc.quit()
@@ -187,8 +289,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         board = rebuild_board(game_uuid, db)
         user_color = chess.WHITE if str(game_rec.white_player_id) == user_id else chess.BLACK
 
-        # --- 1. ABORT / FINISH LOGIKA (TIMEOUT VAGY FELADÁS) ---
-        # Ha ezek közül bármelyik True, akkor itt megállunk és visszatérünk
+        # --- 1. ABORT / FINISH LOGIKA ---
         if is_timeout or is_resignation:
             real_moves = db.query(models.Move).filter(
                 models.Move.game_id == game_uuid,
@@ -196,7 +297,6 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             ).all()
             
             num_actual_moves = len(real_moves)
-            # Fehérnél a 3. fél-lépés az ő 2. lépése, Feketénél a 4. fél-lépés az ő 2. lépése.
             limit = 3 if user_color == chess.WHITE else 4
 
             if num_actual_moves < limit:
@@ -220,14 +320,12 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             }
 
         # --- 2. NORMÁL LÉPÉS KEZELÉSE ---
-        # Csak akkor jutunk ide, ha NEM feladás és NEM timeout történt
         if not move_uci or move_uci == "null":
              raise HTTPException(status_code=400, detail="Missing move data")
 
         try:
             user_move = chess.Move.from_uci(move_uci)
         except:
-            # Automatikus promotion, ha szükséges
             promo_move = chess.Move.from_uci(move_uci + "q")
             if promo_move in board.legal_moves:
                 user_move = promo_move
@@ -237,37 +335,50 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         if user_move not in board.legal_moves:
             raise HTTPException(status_code=400, detail="Illegal move")
 
-        # Lépés végrehajtása
+        # Mentés FEN-nel
+        fen_elotte = board.fen()
         user_move_san = board.san(user_move)
         board.push(user_move)
-        
-        # Játékos lépésének mentése
+        fen_utana = board.fen()
+
         move_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
-        db.add(models.Move(game_id=game_uuid, move_number=move_count, notation=user_move_san, fen_before=board.fen()))
+        db.add(models.Move(
+            game_id=game_uuid, 
+            move_number=move_count, 
+            notation=user_move_san, 
+            fen_before=fen_elotte, 
+            fen_after=fen_utana
+        ))
         db.commit()
 
         # --- 3. BOT VÁLASZA ---
         bot_res = {"from": "", "to": "", "san": "", "is_capture": False}
         if not board.is_game_over():
-            engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.4))
+            engine = get_engine()
+            result = engine.play(board, chess.engine.Limit(time=0.4))
             
             bot_res["from"] = chess.square_name(result.move.from_square)
             bot_res["to"] = chess.square_name(result.move.to_square)
             bot_res["san"] = board.san(result.move)
             
+            fen_bot_elotte = board.fen()
             board.push(result.move)
-            engine_proc.quit()
+            fen_bot_utana = board.fen()
 
+            current_move_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
             db.add(models.Move(
                 game_id=game_uuid, 
-                move_number=move_count + 1, 
+                move_number=current_move_count, 
                 notation=bot_res["san"], 
-                fen_before=board.fen()
+                fen_before=fen_bot_elotte,
+                fen_after=fen_bot_utana
             ))
             db.commit()
 
-        # Végső státusz (Matt, Patt...)
+        # --- 4. MEGNYITÁS FELISMERÉSE ---
+        opening_data = get_opening_with_fallback(db, game_uuid) # <--- EZ LEGYEN OTT!
+
+        # Végső státusz
         final_status_enum, final_reason = get_game_over_details(board)
         if final_status_enum != models.GameStatus.ongoing:
             game_rec.status = final_status_enum
@@ -278,14 +389,14 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             "is_game_over": final_status_enum != models.GameStatus.ongoing,
             "status": final_status_enum.value,
             "reason": final_reason,
-            "bot_move": bot_res
+            "bot_move": bot_res,
+            "opening": opening_data  # Most már létezik a változó!
         }
 
     except Exception as e:
         db.rollback()
-        print(f"Error: {e}")
+        print(f"Error in make_move: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
@@ -295,6 +406,7 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
 
+        # Lépések lekérése időrendben
         moves = db.query(models.Move).filter(models.Move.game_id == game_uuid).order_by(models.Move.move_number.asc()).all()
         
         history_data = []
@@ -311,7 +423,7 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
                 history_data.append({
                     "num": 0, 
                     "m": "start", 
-                    "fen": m.fen_before, 
+                    "fen": m.fen_before or board.fen(), 
                     "from": None, 
                     "to": None, 
                     "t": 0
@@ -331,54 +443,45 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
             except:
                 continue
 
+        # --- AZ ÚJ, OKOS MEGNYITÁS KERESÉS ---
+        # Itt is az új függvényt hívjuk, ami visszanéz a múltba, ha kell
+        opening_data = get_opening_with_fallback(db, game_uuid)
+
         # --- PONTOS OK (REASON) MEGHATÁROZÁSA ---
         status_value = game.status.value if game.status else "ongoing"
         reason = "Match ongoing"
         
-        # 1. Megszakított játék (Aborted) - Ez volt a hiányzó láncszem!
         if game.status == models.GameStatus.aborted:
             reason = "Game Aborted"
-        
-        # 2. Feladás (Resigned)
         elif game.status == models.GameStatus.resigned:
             user_color = str(game.player_color).lower()
             winner = "Black" if user_color == "white" else "White"
             reason = f"{winner} wins by resignation"
-        
-        # 3. Matt (Checkmate)
         elif game.status == models.GameStatus.checkmate:
             winner = "Black" if board.turn == chess.WHITE else "White"
             reason = f"{winner} wins by checkmate"
-            
-        # 4. Időlejárás vagy egyéb befejezés (Finished)
         elif game.status == models.GameStatus.finished:
-            # Megnézzük, kinek az ideje járt le (aki épp jönne)
             winner = "Black" if board.turn == chess.WHITE else "White"
             reason = f"{winner} wins on time"
-
-        # 5. Döntetlenek (Draw)
         elif game.status == models.GameStatus.draw:
-            if board.is_stalemate():
-                reason = "Draw by stalemate"
-            elif board.is_insufficient_material():
-                reason = "Draw by insufficient material"
-            elif board.can_claim_threefold_repetition() or board.is_fivefold_repetition():
-                reason = "Draw by repetition"
-            elif board.can_claim_fifty_moves() or board.is_seventyfive_moves():
-                reason = "Draw by 50-move rule"
-            else:
-                reason = "Draw by agreement"
+            if board.is_stalemate(): reason = "Draw by stalemate"
+            elif board.is_insufficient_material(): reason = "Draw by insufficient material"
+            elif board.can_claim_threefold_repetition(): reason = "Draw by repetition"
+            elif board.can_claim_fifty_moves(): reason = "Draw by 50-move rule"
+            else: reason = "Draw by agreement"
 
         return {
             "history": history_data,
             "status": status_value,
-            "reason": reason
+            "reason": reason,
+            "opening": opening_data  # <--- Az intelligens adat megy vissza
         }
 
     except Exception as e:
-        print(f"Error in history: {e}")
-        return {"history": [], "status": "ongoing", "reason": "Error"}
-
+        import traceback
+        traceback.print_exc()
+        return {"history": [], "status": "ongoing", "reason": "Error", "opening": None}
+    
 @router.get("/get-active-game")
 def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     u_uuid = uuid.UUID(user_id)
