@@ -23,54 +23,60 @@ const GameBoard = () => {
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
-        renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime, 
-        lastTimeControl, executeMove // Fontos: executeMove beemelve a logikához
+        renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime, lastTimeControl
     } = gameLogic;
 
-    // --- ÚJ FÜGGVÉNYEK ---
-    const handleSelectionColorChange = (color) => {
-        if (color === 'random') {
-            setIsFlipped(false);
-        } else {
-            setIsFlipped(color === 'black');
-        }
-    };
+  const handleSelectionColorChange = (color) => {
+    if (color === 'random') {
+        setIsFlipped(false); // Random esetén maradjunk alaphelyzetben
+    } else {
+        setIsFlipped(color === 'black');
+    }
+};
 
-    const handleClosePopup = () => {
-        setDelayedShowPopup(false);
-        setIsPopupClosed(true);
-        // Review-hoz eltüntetjük a sárga mező kiemelést
-        setLastMove({ from: null, to: null });
-    };
-    // ---------------------
+const handleClosePopup = () => {
+    setDelayedShowPopup(false);
+    setIsPopupClosed(true);
+    // Eltüntetjük az utolsó lépés kiemelését a Review-hoz
+    gameLogic.setLastMove({ from: null, to: null });
+};  
+const formatSeconds = (totalSeconds) => {
+    const total = Math.round(totalSeconds * 10) / 10;
+    const hours = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = Math.floor(total % 60);
 
-    const formatSeconds = (totalSeconds) => {
-        const total = Math.round(totalSeconds * 10) / 10;
-        const hours = Math.floor(total / 3600);
-        const mins = Math.floor((total % 3600) / 60);
-        const secs = Math.floor(total % 60);
+    // 10 másodperc alatt: 0:09.7
+    if (total < 10) {
+        const tenths = Math.floor((total % 1) * 10);
+        return `0:${secs.toString().padStart(2, '0')}.${tenths}`;
+    }
 
-        if (total < 10) {
-            const tenths = Math.floor((total % 1) * 10);
-            return `0:${secs.toString().padStart(2, '0')}.${tenths}`;
-        }
-        if (hours > 0) {
-            return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
+    // Ha van legalább 1 óra: H:MM:SS
+    if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Alaphelyzet (1 óra alatt): MM:SS
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
     const isGameActive = !!gameId && gameId !== "null";
 
-    const handleBotSelect = async (elo, color, time) => {
-        setSelectedTime(time);
-        const finalColor = await startNewGame(elo, color, time); 
-        if (finalColor) {
-            setIsSelectingBot(false); 
-            setIsFlipped(finalColor === 'black');
-        }
-    };
+    // --- BOT VÁLASZTÁS KEZELŐ ---
+   const handleBotSelect = async (elo, color, time) => {
+    setSelectedTime(time); // Ez állítja be a UI-on látható időt
+    
+    // Itt a 'time' (pl. "1 min") megy át a startNewGame-nek
+    const finalColor = await startNewGame(elo, color, time); 
+    
+    if (finalColor) {
+        setIsSelectingBot(false); 
+        setIsFlipped(finalColor === 'black');
+    }
+};
 
+    // --- POPUP IDŐZÍTŐ ÉS RESET ---
     useEffect(() => {
         let timer;
         if (status !== "ongoing" && status !== "" && isGameActive) {
@@ -86,6 +92,7 @@ const GameBoard = () => {
         return () => { if (timer) clearTimeout(timer); };
     }, [status, isGameActive, isPopupClosed]);
 
+    // --- NAVIGÁCIÓS FÜGGVÉNY ---
     const goToMove = useCallback((index, isWhiteOnly = false) => {
         setSelectedSquare(null);
         
@@ -129,6 +136,7 @@ const GameBoard = () => {
         }
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playSound]);
 
+    // --- BILLENTYŰZET NAVIGÁCIÓ ---
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -146,6 +154,7 @@ const GameBoard = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewIndex, history, goToMove]);
 
+    // --- EGÉR ESEMÉNYEK ---
     const handleMouseDown = async (e, row, col) => {
         if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
         const square = getSquareName(row, col);
@@ -157,7 +166,7 @@ const GameBoard = () => {
         const piece = chess.get(square);
 
         if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            await executeMove(selectedSquare, square);
+            await gameLogic.executeMove(selectedSquare, square);
             return;
         }
 
@@ -186,7 +195,7 @@ const GameBoard = () => {
         const target = getSquareName(row, col);
         setIsDragging(false);
         if (target === selectedSquare) { setHoverSquare(null); return; }
-        if (validMoves.includes(target)) { await executeMove(selectedSquare, target); } 
+        if (validMoves.includes(target)) { await gameLogic.executeMove(selectedSquare, target); } 
         else {
             playSound('illegal');
             setIsAlert(true);
@@ -197,6 +206,7 @@ const GameBoard = () => {
         }
     };
 
+    // Inicializálás
     useEffect(() => {
         const initialize = async () => {
             if (!token) return;
@@ -212,6 +222,7 @@ const GameBoard = () => {
         initialize();
     }, [token]);
 
+    // Egér követése
     useEffect(() => {
         const handleMouseMove = (e) => {
             if (isDragging) {
@@ -237,24 +248,30 @@ const GameBoard = () => {
     }, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]);
 
     const handleTimeChange = (time) => {
-        setSelectedTime(time);
-        const config = gameLogic.parseTimeControl(time);
-        if (config.base) {
-            setWhiteTime(config.base);
-            setBlackTime(config.base);
-        } else {
-            setWhiteTime(600);
-            setBlackTime(600);
-        }
-    };
+    setSelectedTime(time); // Frissíti a stringet (pl. "1 min")
+    
+    // Előre "beállítjuk" a hook óráit is, hogy vizuálisan frissüljön a tábla mellett
+    const config = gameLogic.parseTimeControl(time);
+    if (config.base) {
+        // Mivel még nem indult el a játék, csak beállítjuk az értékeket, de nem indítjuk el a ketyegést
+        gameLogic.setWhiteTime(config.base);
+        gameLogic.setBlackTime(config.base);
+    } else {
+        // Ha No Timer, visszaállítjuk az alap 10 percre (ami nem látszik)
+        gameLogic.setWhiteTime(600);
+        gameLogic.setBlackTime(600);
+    }
+};
 
     return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
+            {/* Bal oldali Evaluation Bar (Fix 50% egyelőre) */}
             <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
                 <div className="bg-white w-full h-[50%] transition-all"></div>
             </div>
 
             <div className="flex flex-col justify-center items-center h-full shrink-0">
+                {/* FELSŐ SZEKCIÓ (Az ellenfél adatai és órája) */}
                 <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
@@ -265,26 +282,21 @@ const GameBoard = () => {
                         </span>
                     </div>
                     {selectedTime !== "No Timer" && (
-                        <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-colors duration-300 ${
-                            isFlipped 
-                            ? "bg-white border-transparent" // Ha mi vagyunk sötéttel (flipped), az ellenfél (fent) a fehér
-                            : "bg-[#262421] border-white/10" // Ha mi vagyunk fehérrel, az ellenfél (fent) a fekete
-                        }`}>
+                        <div className="px-3 py-1.5 rounded flex items-center justify-between border border-white/10 bg-[#262421] min-w-35">
                             <div className="shrink-0">
                                 <ClockIcon 
                                     isActive={activeTimeColor === (isFlipped ? 'w' : 'b')} 
                                     currentSeconds={isFlipped ? whiteTime : blackTime} 
                                 />
                             </div>
-                            <span className={`flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2 ${
-                                isFlipped ? "text-[#2b2a27]" : "text-white"
-                            }`}>
+                            <span className="flex-1 text-right text-white font-sans font-bold text-2xl tabular-nums leading-none">
                                 {formatSeconds(isFlipped ? whiteTime : blackTime)}
                             </span>
                         </div>
                     )}
                 </div>
 
+                {/* KÖZÉPSŐ SZEKCIÓ: A TÁBLA ÉS A POPUP-OK */}
                 <div className="relative shrink-0 p-0 m-0">
                     <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative" 
                          style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
@@ -295,6 +307,7 @@ const GameBoard = () => {
                             onMouseUp={handleMouseUp} 
                         />
 
+                        {/* Gyalogátváltozás ablak */}
                         <AnimatePresence>
                             {pendingPromotion && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
@@ -306,7 +319,7 @@ const GameBoard = () => {
                                         width: '12.5%' 
                                     }}>
                                     {['q', 'n', 'r', 'b'].map((type) => (
-                                        <button key={type} onClick={() => executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
+                                        <button key={type} onClick={() => gameLogic.executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
                                             <img src={`/assets/pieces/${isFlipped ? 'black' : 'white'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
                                         </button>
                                     ))}
@@ -314,6 +327,7 @@ const GameBoard = () => {
                             )}
                         </AnimatePresence>
                         
+                        {/* Játék vége Popup */}
                         <AnimatePresence>
                             {delayedShowPopup && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
@@ -346,6 +360,7 @@ const GameBoard = () => {
                     </div>
                 </div>
 
+                {/* ALSÓ SZEKCIÓ (A te adataid és órád) */}
                 <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
@@ -356,20 +371,14 @@ const GameBoard = () => {
                         </span>
                     </div>
                     {selectedTime !== "No Timer" && (
-                        <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-colors duration-300 ${
-                            isFlipped 
-                            ? "bg-[#262421] border-white/10" // Ha feketével vagyunk, az alsó óra sötét
-                            : "bg-white border-transparent" // Ha fehérrel vagyunk, az alsó óra világos
-                        }`}>
+                        <div className="px-3 py-1.5 rounded flex items-center justify-between border border-transparent bg-white min-w-35 shadow-lg">
                             <div className="shrink-0">
                                 <ClockIcon 
                                     isActive={activeTimeColor === (isFlipped ? 'b' : 'w')} 
                                     currentSeconds={isFlipped ? blackTime : whiteTime} 
                                 />
                             </div>
-                            <span className={`flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2 ${
-                                isFlipped ? "text-white" : "text-[#2b2a27]"
-                            }`}>
+                            <span className="flex-1 text-right text-[#2b2a27] font-sans font-bold text-2xl tabular-nums leading-none">
                                 {formatSeconds(isFlipped ? blackTime : whiteTime)}
                             </span>
                         </div>
@@ -377,6 +386,7 @@ const GameBoard = () => {
                 </div>
             </div>
 
+            {/* OLDALSÓ PANEL (MoveList vagy BotSelection) */}
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
                 {isGameActive ? (
                     <MoveListPanel 

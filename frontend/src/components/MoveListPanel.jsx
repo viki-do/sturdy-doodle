@@ -13,20 +13,26 @@ const MoveListPanel = ({
     isFlipped,
     onFlipBoard,
     setIsSelectingBot,
-    setGameId,
     reason,
     offerDraw,
-    userChoiceColor,      // ÚJ: A hook-ból jön
-    difficultyChoice,    // ÚJ: A hook-ból jön
-    resetGame
+    userChoiceColor,     
+    difficultyChoice,    
+    resetGame,
+    lastTimeControl,
+    result
+
 }) => {
     const isOngoing = status === "ongoing";
-    const isGameOver = status === "resigned" || status === "checkmate" || status === "draw" || status === "stalemate";
+    const isGameOver = ["resigned", "checkmate", "draw", "stalemate", "aborted", "finished"].includes(status);
     const showEndGameUI = isGameOver && isPopupClosed && !isPopupVisible;
 
     // --- LOGIKA: Fél-lépések párosítása ---
     const movesOnly = history.filter(m => m.m !== "start");
     const rows = [];
+    
+    // Figyelem: itt a lényeg! 
+    // Végigmegyünk az összes fél-lépésen. Ha páratlan a szám, 
+    // akkor az utolsó sorban a black értéke null lesz, de a sor MÁR LÉTEZIK.
     for (let i = 0; i < movesOnly.length; i += 2) {
         rows.push({
             moveNumber: Math.floor(i / 2) + 1,
@@ -39,59 +45,81 @@ const MoveListPanel = ({
 
     // --- EREDMÉNY MEGHATÁROZÁSA ---
     const getResultData = () => {
-        if (!isGameOver) return null;
+    if (!isGameOver) return null;
+
+    // 1. Speciális eset: MEGSZAKÍTOTT JÁTÉK (Aborted)
+    // Ez legyen az első, mert ha túl korai a feladás vagy az időlejárás, 
+    // a backend "aborted"-ot ad vissza, és ilyenkor nincs győztes.
+    if (status === "aborted" || (reason && reason.toLowerCase().includes("aborted"))) {
+        return { 
+            score: "½-½", // Vagy hagyhatod "0-0"-nak, de a sakkban a meg nem történt meccs gyakran üres vagy 1/2
+            winnerText: "Game Aborted", 
+            reasonText: "Too few moves" 
+        };
+    }
+
+    if (reason) {
+        const rLower = reason.toLowerCase();
         
-        if (reason) {
-            const rLower = reason.toLowerCase();
-            
-            if (rLower.includes("white wins")) {
-                return { 
-                    score: "1-0", 
-                    winnerText: "White Won", 
-                    reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
-                };
-            }
-            if (rLower.includes("black wins")) {
-                return { 
-                    score: "0-1", 
-                    winnerText: "Black Won", 
-                    reasonText: reason.includes("resignation") ? "by Resignation" : "by Checkmate" 
-                };
-            }
+        // 2. VILÁGOS GYŐZELMEI
+        if (rLower.includes("white wins")) {
+            let detail = "by Checkmate";
+            if (rLower.includes("resignation")) detail = "by Resignation";
+            if (rLower.includes("on time")) detail = "on Time";
 
-            if (rLower.includes("draw")) {
-                const reasonDetail = reason.replace(/Draw\s+/i, ""); 
-                return { 
-                    score: "1/2-1/2", 
-                    winnerText: "Draw", 
-                    reasonText: reasonDetail || "by Rule" 
-                };
-            }
-        }
-
-        // Fallback
-        if (status === "resigned") {
-            return isFlipped 
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
+            return { 
+                score: "1-0", 
+                winnerText: "White Won", 
+                reasonText: detail 
+            };
         }
         
-        if (status === "checkmate") {
-            const isWhiteLast = (movesOnly.length % 2 !== 0);
-            return isWhiteLast 
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
+        // 3. SÖTÉT GYŐZELMEI
+        if (rLower.includes("black wins")) {
+            let detail = "by Checkmate";
+            if (rLower.includes("resignation")) detail = "by Resignation";
+            if (rLower.includes("on time")) detail = "on Time";
+
+            return { 
+                score: "0-1", 
+                winnerText: "Black Won", 
+                reasonText: detail 
+            };
         }
 
-        if (status === "draw" || status === "stalemate") {
-            return { score: "1/2-1/2", winnerText: "Draw", reasonText: "by Rule" };
+        // 4. DÖNTETLENEK (Stalemate, Insufficient Material, Repetition, 50-move rule)
+        if (rLower.includes("draw")) {
+            // Megpróbáljuk kiszedni a pontos okot (pl. "Draw by stalemate" -> "by stalemate")
+            const reasonDetail = reason.replace(/Draw\s+/i, ""); 
+            return { 
+                score: "½-½", 
+                winnerText: "Draw", 
+                reasonText: reasonDetail || "by Rule" 
+            };
         }
-        
-        return { score: "*", winnerText: "Game Over", reasonText: "" };
-    };
+    }
 
-    const result = getResultData();
+    // --- FALLBACK-EK (Ha a reason valamiért nem jönne át, de a státusz igen) ---
+    if (status === "resigned") {
+        // Ha mi adtuk fel (isFlipped azt jelenti sötéttel vagyunk), akkor fehér nyert
+        return isFlipped 
+            ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
+            : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
+    }
+    
+    if (status === "checkmate") {
+        const isWhiteLast = (movesOnly.length % 2 !== 0);
+        return isWhiteLast 
+            ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
+            : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
+    }
 
+    if (status === "draw" || status === "stalemate") {
+        return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
+    }
+    
+    return { score: "*", winnerText: "Game Over", reasonText: "" };
+};
     return (
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
             
@@ -182,7 +210,7 @@ const MoveListPanel = ({
                 </button>
 
                 <button 
-                    onClick={() => startNewGame(difficultyChoice, userChoiceColor)} 
+                    onClick={() => startNewGame(difficultyChoice, userChoiceColor, lastTimeControl)} 
                     className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
                 >
                     <i className="fas fa-sync-alt"></i> Rematch
