@@ -14,6 +14,14 @@ import os
 
 OPENING_BOOK = {}
 
+def get_skill_level_from_elo(elo: int) -> int:
+    """Stockfish Skill Level (0-20) kiszámítása ELO alapján"""
+    if elo <= 250: return 0
+    if elo >= 3000: return 20
+    # Skálázás 250 és 3000 között
+    level = int((elo - 250) / (3000 - 250) * 20)
+    return max(0, min(20, level))
+
 def load_openings():
     global OPENING_BOOK
     # Az útvonal a data/openings mappára mutat
@@ -130,6 +138,11 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         u_uuid = uuid.UUID(user_id)
         chosen_color = data.get("color", "white")
         
+        # --- ÚJ ADATOK FOGADÁSA ---
+        bot_elo = data.get("bot_elo", 1500)
+        bot_id = data.get("bot_id", "engine")
+        bot_style = data.get("bot_style", "mix")
+        
         # --- RANDOM SORSOLÁS ---
         if chosen_color == "random":
             import random
@@ -137,13 +150,14 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         
         board = chess.Board()
         
-        white_id = u_uuid if chosen_color == "white" else None
-        black_id = u_uuid if chosen_color == "black" else None
-
+        # --- ÚJ GAME REKORD MENTÉSE ---
         new_game = models.Game(
-            white_player_id=white_id,
-            black_player_id=black_id,
+            white_player_id=u_uuid if chosen_color == "white" else None,
+            black_player_id=u_uuid if chosen_color == "black" else None,
             player_color=chosen_color,
+            bot_elo=bot_elo,
+            bot_id=bot_id,
+            bot_style=bot_style,
             time_category=data.get("time_category", "rapid"),
             base_time_sec=data.get("base_time", 600),
             status=models.GameStatus.ongoing
@@ -152,39 +166,43 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         db.commit()
         db.refresh(new_game)
 
-        # 0. lépés: Start állapot mentése (Itt a before és after megegyezik)
+        # 0. lépés: Start mentése
         db.add(models.Move(
-            game_id=new_game.id, 
-            move_number=0, 
-            notation="start", 
-            fen_before=board.fen(), 
-            fen_after=board.fen()
+            game_id=new_game.id, move_number=0, notation="start", 
+            fen_before=board.fen(), fen_after=board.fen()
         ))
         db.commit()
 
-        # --- BOT LÉPÉSE, HA A USER FEKETE ---
+        # --- BOT LÉPÉSE (HA A USER FEKETE) ---
         if chosen_color == "black":
-            engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.5))
+            engine = get_engine() # Singleton használata!
             
-            # Adatok kinyerése a mentéshez
+            # 1. Beállítjuk a nehézséget
+            skill = get_skill_level_from_elo(bot_elo)
+            engine.configure({"Skill Level": skill})
+            
+            # 2. DINAMIKUS IDŐ LIMIT
+            # Ha gyenge a bot: 0.05s ( Martin)
+            # Ha közepes: 0.2s - 0.5s
+            # Ha mester (2400+): 1.0s - 2.0s is lehet, hogy mélyebbre lásson
+            if bot_elo < 800:
+                t_limit = 0.05
+            elif bot_elo < 2000:
+                t_limit = 0.4
+            else:
+                t_limit = 1.0  # Magas szinten adjunk neki időt a minőséghez
+            
+            result = engine.play(board, chess.engine.Limit(time=t_limit))
+            
             move_san = board.san(result.move)
-            fen_elotte = board.fen()  # Alapállás
+            fen_elotte = board.fen()
+            board.push(result.move)
             
-            board.push(result.move)   # Lépés végrehajtása a táblán
-            
-            fen_utana = board.fen()   # Állás a bot lépése után (pl. e4 utáni FEN)
-            
-            bot_move = models.Move(
-                game_id=new_game.id,
-                move_number=1,
-                notation=move_san,
-                fen_before=fen_elotte,
-                fen_after=fen_utana  # <--- Ez fontos az optimalizáláshoz!
-            )
-            db.add(bot_move)
+            db.add(models.Move(
+                game_id=new_game.id, move_number=1, notation=move_san,
+                fen_before=fen_elotte, fen_after=board.fen()
+            ))
             db.commit()
-            engine_proc.quit()
 
         return {
             "game_id": str(new_game.id), 
@@ -319,7 +337,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
                 "new_fen": board.fen()
             }
 
-        # --- 2. NORMÁL LÉPÉS KEZELÉSE ---
+        # --- 2. USER LÉPÉSE ---
         if not move_uci or move_uci == "null":
              raise HTTPException(status_code=400, detail="Missing move data")
 
@@ -335,7 +353,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         if user_move not in board.legal_moves:
             raise HTTPException(status_code=400, detail="Illegal move")
 
-        # Mentés FEN-nel
+        # Mentés
         fen_elotte = board.fen()
         user_move_san = board.san(user_move)
         board.push(user_move)
@@ -351,12 +369,35 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         ))
         db.commit()
 
-        # --- 3. BOT VÁLASZA ---
-        bot_res = {"from": "", "to": "", "san": "", "is_capture": False}
+        # --- 3. BOT VÁLASZA (Dinamikus nehézséggel és Evaluation-nel) ---
+        bot_res = {"from": "", "to": "", "san": "", "evaluation": 0.0}
+        
         if not board.is_game_over():
             engine = get_engine()
-            result = engine.play(board, chess.engine.Limit(time=0.4))
             
+            # SKILL LEVEL BEÁLLÍTÁSA
+            bot_elo = game_rec.bot_elo if game_rec.bot_elo else 1500
+            skill = get_skill_level_from_elo(bot_elo)
+            engine.configure({"Skill Level": skill})
+            
+            # DINAMIKUS IDŐ LIMIT
+            if bot_elo < 800: t_limit = 0.05
+            elif bot_elo < 2200: t_limit = 0.4
+            else: t_limit = 1.0 # Erős botoknak kell a mélység
+            
+            # Lépés és Elemzés kérése egyszerre
+            # Az 'analyse' helyett a play is vissza tud adni infót ha kérjük
+            result = engine.play(board, chess.engine.Limit(time=t_limit), info=chess.engine.InfoDict(0))
+            
+            # Evaluation kinyerése (Extra!)
+            # Ha van score, centipawn-ban kapjuk meg a fehér szemszögéből
+            if result.info and "score" in result.info:
+                score = result.info["score"].white()
+                if score.is_mate():
+                    bot_res["evaluation"] = f"M{score.mate()}"
+                else:
+                    bot_res["evaluation"] = score.score() / 100.0 # Gyalogértékre váltás
+
             bot_res["from"] = chess.square_name(result.move.from_square)
             bot_res["to"] = chess.square_name(result.move.to_square)
             bot_res["san"] = board.san(result.move)
@@ -375,10 +416,9 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             ))
             db.commit()
 
-        # --- 4. MEGNYITÁS FELISMERÉSE ---
-        opening_data = get_opening_with_fallback(db, game_uuid) # <--- EZ LEGYEN OTT!
+        # --- 4. MEGNYITÁS ÉS VÉGSZÓ ---
+        opening_data = get_opening_with_fallback(db, game_uuid)
 
-        # Végső státusz
         final_status_enum, final_reason = get_game_over_details(board)
         if final_status_enum != models.GameStatus.ongoing:
             game_rec.status = final_status_enum
@@ -390,12 +430,14 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             "status": final_status_enum.value,
             "reason": final_reason,
             "bot_move": bot_res,
-            "opening": opening_data  # Most már létezik a változó!
+            "opening": opening_data,
+            "evaluation": bot_res["evaluation"] # Ezt küldjük az Eval bar-hoz!
         }
 
     except Exception as e:
         db.rollback()
-        print(f"Error in make_move: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/game/{game_id}/history")

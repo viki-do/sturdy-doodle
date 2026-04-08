@@ -41,7 +41,10 @@ class Game(Base):
     status = Column(Enum(GameStatus), default=GameStatus.ongoing)
     pgn = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
-    player_color = Column(String(10), default="white")
+    bot_elo = Column(Integer, default=1500)
+    bot_id = Column(String, nullable=True)     # pl. "martin", "hikaru"
+    bot_style = Column(String, default="mix")  # "támadó", "védekező", stb.
+    player_color = Column(String, default="white")
 
 
 class Move(Base):
