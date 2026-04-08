@@ -8,6 +8,7 @@ import { useChessGame } from '../hooks/useChessGame.jsx';
 import ClockIcon from '../components/ClockIcon';
 import axios from 'axios';
 import { Chess } from 'chess.js';
+import { botCategories } from '../constants/bots.js';
 
 const GameBoard = () => {
     const gameLogic = useChessGame();
@@ -17,6 +18,9 @@ const GameBoard = () => {
     const [isFlipped, setIsFlipped] = useState(false);
     const [selectedTime, setSelectedTime] = useState("No Timer");
     const [currentOpening, setCurrentOpening] = useState(null);
+    const [opponent, setOpponent] = useState(null);
+    const [previewOpponent, setPreviewOpponent] = useState(null);
+
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
@@ -25,7 +29,7 @@ const GameBoard = () => {
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime, 
-        lastTimeControl, executeMove // Fontos: executeMove beemelve a logikához
+        lastTimeControl, executeMove 
     } = gameLogic;
 
     // --- ÚJ FÜGGVÉNYEK ---
@@ -65,12 +69,26 @@ const GameBoard = () => {
 
     const handleBotSelect = async (elo, color, time) => {
         setSelectedTime(time);
-        const finalColor = await startNewGame(elo, color, time); 
-        if (finalColor) {
-            setIsSelectingBot(false); 
-            setIsFlipped(finalColor === 'black');
-        }
-    };
+       
+    // Keressük meg a bot adatait a botCategories-ből az ELO alapján (vagy az ID alapján, ha azt is átadnád)
+    let botData = null;
+    for (const cat of botCategories) {
+        const found = cat.bots.find(b => b.elo === elo);
+        if (found) { botData = found; break; }
+    }
+    // Ha az engine slider-t használtad:
+    if (!botData && elo) {
+        // Csak ennyi: írjuk ki szebben a nevet
+        botData = { name: "Engine", elo: elo, img: null };
+    }
+
+    const finalColor = await startNewGame(elo, color, time); 
+    if (finalColor) {
+        setOpponent(botData); // Mentjük az ellenfél adatait
+        setIsSelectingBot(false); 
+        setIsFlipped(finalColor === 'black');
+    }
+};
 
     useEffect(() => {
         let timer;
@@ -199,19 +217,29 @@ const GameBoard = () => {
     };
 
     useEffect(() => {
-        const initialize = async () => {
-            if (!token) return;
-            try {
-                const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
-                if (res.data.game_id) {
-                    setGameId(res.data.game_id);
-                    setIsFlipped(res.data.player_color === 'black');
-                    await fetchGameState(res.data.game_id);
+    const initialize = async () => {
+        if (!token) return;
+        try {
+            const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
+            if (res.data.game_id) {
+                setGameId(res.data.game_id);
+                setIsFlipped(res.data.player_color === 'black');
+                
+                // Ha a backend visszaküldi a bot elo-t, keresd meg a botData-t:
+                const botElo = res.data.bot_elo;
+                let bData = null;
+                for (const cat of botCategories) {
+                    const found = cat.bots.find(b => b.elo === botElo);
+                    if (found) { bData = found; break; }
                 }
-            } catch (e) { setGameId(null); }
-        };
-        initialize();
-    }, [token]);
+                setOpponent(bData);
+
+                await fetchGameState(res.data.game_id);
+            }
+        } catch (e) { setGameId(null); }
+    };
+    initialize();
+}, [token]);
 
     useEffect(() => {
         const handleMouseMove = (e) => {
@@ -258,18 +286,34 @@ const GameBoard = () => {
             <div className="flex flex-col justify-center items-center h-full shrink-0">
                 <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
-                            <i className="fas fa-user text-[#808080] text-xl"></i>
+                        <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
+                            {/* Mindig az opponent vagy preview képét nézzük */}
+                            {(isSelectingBot ? previewOpponent?.img : opponent?.img) ? (
+                                <img src={isSelectingBot ? previewOpponent.img : opponent.img} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                                <i className="fas fa-robot text-[#808080] text-xl"></i>
+                            )}
                         </div>
-                        <span className="text-[#bab9b8] font-bold text-[14px]">
-                            {isFlipped ? 'You' : 'Opponent'}
-                        </span>
+                        <div className="flex flex-col justify-center">
+                            {/* Mindig az opponent vagy preview nevét írjuk ki */}
+                            <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
+                                {(isSelectingBot ? previewOpponent?.name : opponent?.name) || 'Opponent'}
+                            </span>
+                            {/* ELO - Csak akkor mutatjuk, ha van opponent */}
+                            {((isSelectingBot ? previewOpponent : opponent)) && (
+                                <span className="text-[#8b8987] text-[11px] font-bold">
+                                    ({isSelectingBot ? previewOpponent?.elo : opponent?.elo})
+                                </span>
+                            )}
+                        </div>
                     </div>
+                    
+                    {/* ÓRA (Fent) - Ennek a logikája marad, mert az órának tudnia kell, melyik szín az ellenfélé */}
                     {selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-colors duration-300 ${
-                            isFlipped 
-                            ? "bg-white border-transparent" // Ha mi vagyunk sötéttel (flipped), az ellenfél (fent) a fehér
-                            : "bg-[#262421] border-white/10" // Ha mi vagyunk fehérrel, az ellenfél (fent) a fekete
+                            activeTimeColor === (isFlipped ? 'w' : 'b') // Ha mi sötéttel vagyunk, a fenti óra a fehéré
+                            ? "bg-white border-transparent" 
+                            : "bg-[#262421] border-white/10"
                         }`}>
                             <div className="shrink-0">
                                 <ClockIcon 
@@ -349,18 +393,24 @@ const GameBoard = () => {
 
                 <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg">
+                        <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
+                            {/* Alsó részen mindig a felhasználó ikonja van */}
                             <i className="fas fa-user text-[#808080] text-xl"></i>
                         </div>
-                        <span className="text-[#bab9b8] font-bold text-[14px]">
-                            {isFlipped ? 'Opponent' : 'You'}
-                        </span>
+                        <div className="flex flex-col justify-center">
+                            {/* Alsó részen mindig 'You' van */}
+                            <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
+                                You
+                            </span>
+                        </div>
                     </div>
+
+                    {/* ÓRA (Lent) - Ez is marad a régi logikával */}
                     {selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-colors duration-300 ${
-                            isFlipped 
-                            ? "bg-[#262421] border-white/10" // Ha feketével vagyunk, az alsó óra sötét
-                            : "bg-white border-transparent" // Ha fehérrel vagyunk, az alsó óra világos
+                            activeTimeColor === (isFlipped ? 'b' : 'w') // Ha mi sötéttel vagyunk, az alsó óra a feketéé
+                            ? "bg-white border-transparent text-[#2b2a27]" 
+                            : "bg-[#262421] border-white/10 text-white"
                         }`}>
                             <div className="shrink-0">
                                 <ClockIcon 
@@ -405,6 +455,7 @@ const GameBoard = () => {
                         onSelectBot={handleBotSelect} 
                         onTimeChange={handleTimeChange}
                         onColorChange={handleSelectionColorChange}
+                        onPreviewChange={setPreviewOpponent}
                     />
                 ) : (
                     <PlaySelectionPanel onPlayBots={() => setIsSelectingBot(true)} />
