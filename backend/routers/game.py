@@ -143,7 +143,7 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         bot_id = data.get("bot_id", "engine")
         bot_style = data.get("bot_style", "mix")
         
-        # --- RANDOM SORSOLÁS ---
+        # --- RANDOM SORSOLÁS (Backend oldalon) ---
         if chosen_color == "random":
             import random
             chosen_color = random.choice(["white", "black"])
@@ -158,7 +158,7 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
             bot_elo=bot_elo,
             bot_id=bot_id,
             bot_style=bot_style,
-            time_category=data.get("time_category", "rapid"),
+            time_category=models.GameCategory.rapid, # Alapértelmezett, vagy számold ki az időből
             base_time_sec=data.get("base_time", 600),
             status=models.GameStatus.ongoing
         )
@@ -166,41 +166,42 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         db.commit()
         db.refresh(new_game)
 
-        # 0. lépés: Start mentése
+        # 0. lépés: Start mentése a Move táblába
         db.add(models.Move(
-            game_id=new_game.id, move_number=0, notation="start", 
-            fen_before=board.fen(), fen_after=board.fen()
+            game_id=new_game.id, 
+            move_number=0, 
+            notation="start", 
+            fen_before=board.fen(), 
+            fen_after=board.fen()
         ))
         db.commit()
 
-        # --- BOT LÉPÉSE (HA A USER FEKETE) ---
+        # --- BOT LÉPÉSE (HA A USER FEKETE, A BOT KEZD FEHÉRREL) ---
         if chosen_color == "black":
-            engine = get_engine() # Singleton használata!
+            from .stockfish_utils import get_engine # Ellenőrizd az importot!
+            engine = get_engine()
             
-            # 1. Beállítjuk a nehézséget
+            # Konfigurálás
             skill = get_skill_level_from_elo(bot_elo)
             engine.configure({"Skill Level": skill})
             
-            # 2. DINAMIKUS IDŐ LIMIT
-            # Ha gyenge a bot: 0.05s ( Martin)
-            # Ha közepes: 0.2s - 0.5s
-            # Ha mester (2400+): 1.0s - 2.0s is lehet, hogy mélyebbre lásson
-            if bot_elo < 800:
-                t_limit = 0.05
-            elif bot_elo < 2000:
-                t_limit = 0.4
-            else:
-                t_limit = 1.0  # Magas szinten adjunk neki időt a minőséghez
+            # Időlimit meghatározása
+            t_limit = 0.1 if bot_elo < 800 else 0.5
             
+            # Bot lép
             result = engine.play(board, chess.engine.Limit(time=t_limit))
             
             move_san = board.san(result.move)
             fen_elotte = board.fen()
             board.push(result.move)
             
+            # Bot első lépésének mentése
             db.add(models.Move(
-                game_id=new_game.id, move_number=1, notation=move_san,
-                fen_before=fen_elotte, fen_after=board.fen()
+                game_id=new_game.id, 
+                move_number=1, 
+                notation=move_san,
+                fen_before=fen_elotte, 
+                fen_after=board.fen()
             ))
             db.commit()
 
@@ -211,6 +212,8 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
         }
     except Exception as e:
         db.rollback()
+        import traceback
+        traceback.print_exc() # Ez kiírja a hibát a terminálba!
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/get-valid-moves")
@@ -353,7 +356,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         if user_move not in board.legal_moves:
             raise HTTPException(status_code=400, detail="Illegal move")
 
-        # Mentés
+        # Mentés a DB-be
         fen_elotte = board.fen()
         user_move_san = board.san(user_move)
         board.push(user_move)
@@ -369,52 +372,99 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         ))
         db.commit()
 
-        # --- 3. BOT VÁLASZA (Dinamikus nehézséggel és Evaluation-nel) ---
+        # --- 3. BOT VÁLASZA (Személyiség és Blunder logika) ---
         bot_res = {"from": "", "to": "", "san": "", "evaluation": 0.0}
-        
+        chosen_move = None  # Alaphelyzetbe állítás a biztonság kedvéért
+
         if not board.is_game_over():
+            import random
             engine = get_engine()
+            bot_elo = game_rec.bot_elo or 1500
+            bot_id = str(game_rec.bot_id).lower()
+            bot_style = (game_rec.bot_style or "universal").lower()
             
-            # SKILL LEVEL BEÁLLÍTÁSA
-            bot_elo = game_rec.bot_elo if game_rec.bot_elo else 1500
-            skill = get_skill_level_from_elo(bot_elo)
-            engine.configure({"Skill Level": skill})
+            # Alap Stockfish konfiguráció az ELO alapján
+            engine.configure({"Skill Level": get_skill_level_from_elo(bot_elo)})
             
-            # DINAMIKUS IDŐ LIMIT
-            if bot_elo < 800: t_limit = 0.05
-            elif bot_elo < 2200: t_limit = 0.4
-            else: t_limit = 1.0 # Erős botoknak kell a mélység
+            # Limit meghatározása (Beginner botok/engine rövidlátóak legyenek)
+            limit_params = {"time": 0.1}
+            if bot_elo < 800: 
+                limit_params["nodes"] = 400
             
-            # Lépés és Elemzés kérése egyszerre
-            # Az 'analyse' helyett a play is vissza tud adni infót ha kérjük
-            result = engine.play(board, chess.engine.Limit(time=t_limit), info=chess.engine.InfoDict(0))
+            # Szélesebb spektrumot kérünk (MultiPV 5), hogy legyen miből válogatni
+            analysis = engine.analyse(board, chess.engine.Limit(**limit_params), multipv=5)
             
-            # Evaluation kinyerése (Extra!)
-            # Ha van score, centipawn-ban kapjuk meg a fehér szemszögéből
-            if result.info and "score" in result.info:
-                score = result.info["score"].white()
-                if score.is_mate():
-                    bot_res["evaluation"] = f"M{score.mate()}"
+            if not analysis:
+                chosen_move = list(board.legal_moves)[0]
+            else:
+                options = [a["pv"][0] for a in analysis]
+                r = random.random()
+
+                # --- ELÁGAZÁS: NYERS ENGINE vs. SZEMÉLYISÉGGEL RENDELKEZŐ BOT ---
+                if bot_id == "engine":
+                    # Az Engine mindig a legjobbat lépi, amit az adott Skill Levelen talál
+                    chosen_move = options[0]
+                    print(f"DEBUG: Nyers Engine lép (ELO: {bot_elo})")
                 else:
-                    bot_res["evaluation"] = score.score() / 100.0 # Gyalogértékre váltás
+                    # BOT SZEMÉLYISÉG LOGIKA
+                    if bot_style == "attacker":
+                        aggressive = [m for m in options if board.is_capture(m) or board.gives_check(m)]
+                        chosen_move = random.choice(aggressive) if aggressive and r < 0.8 else options[0]
 
-            bot_res["from"] = chess.square_name(result.move.from_square)
-            bot_res["to"] = chess.square_name(result.move.to_square)
-            bot_res["san"] = board.san(result.move)
-            
-            fen_bot_elotte = board.fen()
-            board.push(result.move)
-            fen_bot_utana = board.fen()
+                    elif bot_style == "positional":
+                        quiet = [m for m in options if not board.is_capture(m) and not board.gives_check(m)]
+                        chosen_move = quiet[0] if quiet else options[0]
 
-            current_move_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
-            db.add(models.Move(
-                game_id=game_uuid, 
-                move_number=current_move_count, 
-                notation=bot_res["san"], 
-                fen_before=fen_bot_elotte,
-                fen_after=fen_bot_utana
-            ))
-            db.commit()
+                    elif bot_style == "tactician":
+                        # A taktikus 90%-ban pontos, de néha a trükkösebb 2. opciót választja
+                        chosen_move = options[0] if r < 0.9 or len(options) < 2 else options[1]
+
+                    elif bot_style == "universal":
+                        chosen_move = options[0] if r < 0.7 else random.choice(options[:2])
+
+                    elif bot_style == "prophylactic":
+                        # Megelőző: kerüli az ütésbe lépést a top listából
+                        safe = [m for m in options if not board.is_capture(m)]
+                        chosen_move = safe[0] if safe else options[0]
+                    
+                    else:
+                        chosen_move = options[0]
+
+                    # --- KEZDŐ BLUNDER (Csak Botoknál, Engine-nél nem szándékos) ---
+                    if bot_elo < 500 and r < 0.4 and len(options) > 1:
+                        chosen_move = options[-1] 
+                        print(f"DEBUG: Bot {game_rec.bot_id} szándékos hibát (blunder) vétett!")
+                        
+            # --- VÉGREHAJTÁS ÉS MENTÉS ---
+            if chosen_move:
+                print(f"DEBUG: Bot ({bot_style}) választott lépése: {chosen_move}")
+                bot_res["san"] = board.san(chosen_move)
+                bot_res["from"] = chess.square_name(chosen_move.from_square)
+                bot_res["to"] = chess.square_name(chosen_move.to_square)
+                
+                # Evaluation (Mindig a legjobb lépés alapján az EvalBar-nak)
+                try:
+                    score = analysis[0]["score"].white()
+                    bot_res["evaluation"] = f"M{score.mate()}" if score.is_mate() else score.score() / 100.0
+                except:
+                    bot_res["evaluation"] = 0.0
+
+                # Tábla frissítése és mentése
+                f_before = board.fen()
+                board.push(chosen_move)
+                f_after = board.fen()
+
+                m_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
+                db.add(models.Move(
+                    game_id=game_uuid, 
+                    move_number=m_count, 
+                    notation=bot_res["san"], 
+                    fen_before=f_before,
+                    fen_after=f_after
+                ))
+                db.commit()
+            else:
+                print("DEBUG: Nem sikerült lépést választani!")
 
         # --- 4. MEGNYITÁS ÉS VÉGSZÓ ---
         opening_data = get_opening_with_fallback(db, game_uuid)
@@ -431,7 +481,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
             "reason": final_reason,
             "bot_move": bot_res,
             "opening": opening_data,
-            "evaluation": bot_res["evaluation"] # Ezt küldjük az Eval bar-hoz!
+            "evaluation": bot_res.get("evaluation", 0.0)
         }
 
     except Exception as e:
@@ -439,7 +489,7 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
-
+    
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
     try:
@@ -605,114 +655,6 @@ def handle_timeout(data: dict, user_id: str = Depends(get_current_user_id), db: 
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.post("/move")
-def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    game_uuid = uuid.UUID(data.get("game_id"))
-    move_uci = data.get("move")
-    is_timeout = data.get("timeout", False)
-    is_resignation = data.get("resigned", False) # Feltételezve, hogy a frontend küldheti ezt is
-
-    try:
-        game_rec = db.query(models.Game).filter(models.Game.id == game_uuid).first()
-        if not game_rec or game_rec.status != models.GameStatus.ongoing:
-            return {"status": game_rec.status.value if game_rec else "not_found", "is_game_over": True}
-
-        board = rebuild_board(game_uuid, db)
-        
-        # Meghatározzuk a felhasználó színét (Ha ő a 'white_player_id', akkor WHITE, különben BLACK)
-        user_color = chess.WHITE if str(game_rec.white_player_id) == user_id else chess.BLACK
-
-        # --- 1. ABORT / FINISH LOGIKA (TIMEOUT VAGY FELADÁS) ---
-        if is_timeout or is_resignation:
-            real_moves = db.query(models.Move).filter(
-                models.Move.game_id == game_uuid,
-                models.Move.notation != "start"
-            ).all()
-            
-            num_actual_moves = len(real_moves)
-            
-            # SZABÁLY: A meccs akkor hivatalos, ha a felhasználó megtette a MÁSODIK lépését.
-            # Ha Fehér (User): 1. lépés (1. ply), Bot válaszol (2. ply). A 3. ply lenne a User 2. lépése.
-            # -> Kell legalább 3 fél-lépés az adatbázisban, hogy a 2. lépését megkezdhesse.
-            
-            # Ha Fekete (User): Bot kezd (1. ply), User 1. lépés (2. ply), Bot 2. lépés (3. ply).
-            # -> Kell legalább 4 fél-lépés, hogy a User a 2. lépését megtegye.
-            
-            limit = 3 if user_color == chess.WHITE else 4
-
-            if num_actual_moves < limit:
-                game_rec.status = models.GameStatus.aborted
-                reason = "Game Aborted"
-            else:
-                game_rec.status = models.GameStatus.finished
-                if is_timeout:
-                    # Aki épp jönne, annak járt le az ideje
-                    winner = "Black" if board.turn == chess.WHITE else "White"
-                    reason = f"{winner} wins on time"
-                else:
-                    # Feladásnál aki feladta, az veszít
-                    winner = "Black" if user_color == chess.WHITE else "White"
-                    reason = f"{winner} wins by resignation"
-
-            db.commit()
-            return {"status": game_rec.status.value, "reason": reason, "is_game_over": True, "new_fen": board.fen()}
-
-        # --- 2. NORMÁL LÉPÉS KEZELÉSE ---
-        user_move = chess.Move.from_uci(move_uci)
-        if user_move not in board.legal_moves:
-            # Auto-promotion Queen
-            promo_move = chess.Move.from_uci(move_uci + "q")
-            if promo_move in board.legal_moves:
-                user_move = promo_move
-            else:
-                raise HTTPException(status_code=400, detail="Illegal move")
-
-        user_move_san = board.san(user_move)
-        board.push(user_move)
-        
-        # Mentés
-        move_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
-        db.add(models.Move(game_id=game_uuid, move_number=move_count, notation=user_move_san, fen_before=board.fen()))
-        db.commit()
-
-        # --- 3. BOT VÁLASZA (Csak ha a User lépése után nincs vége) ---
-        bot_res = {"from": "", "to": "", "san": "", "is_capture": False}
-        if not board.is_game_over():
-            engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            result = engine_proc.play(board, chess.engine.Limit(time=0.4))
-            
-            bot_res["from"] = chess.square_name(result.move.from_square)
-            bot_res["to"] = chess.square_name(result.move.to_square)
-            bot_res["san"] = board.san(result.move)
-            
-            board.push(result.move)
-            engine_proc.quit()
-
-            db.add(models.Move(
-                game_id=game_uuid, 
-                move_number=move_count + 1, 
-                notation=bot_res["san"], 
-                fen_before=board.fen()
-            ))
-            db.commit()
-
-        # Végső ellenőrzés (Matt, Patt, stb.)
-        final_status_enum, final_reason = get_game_over_details(board)
-        if final_status_enum != models.GameStatus.ongoing:
-            game_rec.status = final_status_enum
-            db.commit()
-
-        return {
-            "new_fen": board.fen(),
-            "is_game_over": final_status_enum != models.GameStatus.ongoing,
-            "status": final_status_enum.value,
-            "reason": final_reason,
-            "bot_move": bot_res
-        }
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
     
 @router.post("/offer-draw")
 def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):

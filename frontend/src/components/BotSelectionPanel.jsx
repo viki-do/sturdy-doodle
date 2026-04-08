@@ -86,12 +86,12 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, o
     setEngineElo(closestElo);
     
     const engineBot = { 
-        id: 'engine', 
-        name: 'Engine', // Legyen fix név a kijelzőhöz
-        elo: closestElo, 
-        img: null, // Nincs képe az engine-nek
-        isEngine: true 
-    };
+    id: 'engine', 
+    name: 'Engine', 
+    elo: closestElo, 
+    img: null, 
+    isEngine: true 
+};
     handleBotChange(engineBot); // Ez fogja meghívni az onPreviewChange-et
 };
 
@@ -247,7 +247,7 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, o
                 </div>
 
                 <button 
-                    onClick={() => onSelectBot(selectedBot.elo, selectedColor, timeControl)}
+                    onClick={() => onSelectBot(selectedBot, selectedColor, timeControl)}
                     className="w-full py-4 bg-[#81b64c] hover:bg-[#95c95d] text-white font-black text-2xl uppercase rounded-lg shadow-[0_4px_0_0_#457528] active:translate-y-1 active:shadow-none transition-all cursor-pointer"
                 >
                     Play
