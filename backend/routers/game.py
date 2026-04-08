@@ -13,8 +13,31 @@ import json
 import os
 from .analysis_engine import ChessCoachEngine
 
-
+router = APIRouter(tags=["Chess Game"])
 coach = ChessCoachEngine()
+# Globális változó a motornak
+engine_singleton = None
+
+
+STOCKFISH_PATH = "engine/stockfish.exe"
+OPENING_BOOK = {}
+
+def get_engine():
+    global engine_singleton
+    if engine_singleton is None:
+        try:
+            engine_singleton = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+        except Exception as e:
+            print(f"Hiba a Stockfish indításakor: {e}")
+            raise e
+    return engine_singleton
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 @router.post("/analyze-full-game/{game_id}")
 def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
@@ -115,7 +138,6 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
         "player_color": game.player_color
     }
 
-OPENING_BOOK = {}
 
 def get_skill_level_from_elo(elo: int) -> int:
     """Stockfish Skill Level (0-20) kiszámítása ELO alapján"""
@@ -184,30 +206,6 @@ def get_opening_with_fallback(db: Session, game_id: uuid.UUID):
             }
 
     return None
-
-router = APIRouter(tags=["Chess Game"])
-
-STOCKFISH_PATH = "engine/stockfish.exe"
-
-# Globális változó a motornak
-engine_singleton = None
-
-def get_engine():
-    global engine_singleton
-    if engine_singleton is None:
-        try:
-            engine_singleton = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-        except Exception as e:
-            print(f"Hiba a Stockfish indításakor: {e}")
-            raise e
-    return engine_singleton
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def rebuild_board(game_id: uuid.UUID, db: Session):
     # Csak a legutolsó lépést kérjük le (move_number alapján csökkenő sorrend, az első elem)
