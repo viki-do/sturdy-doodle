@@ -1,4 +1,5 @@
 import React from 'react';
+
 const MoveListPanel = ({
     history,
     viewIndex,
@@ -24,6 +25,7 @@ const MoveListPanel = ({
     const isOngoing = status === "ongoing";
     const isGameOver = ["resigned", "checkmate", "draw", "stalemate", "aborted", "finished"].includes(status);
     const showEndGameUI = isGameOver && isPopupClosed && !isPopupVisible;
+
     // --- LOGIKA: Fél-lépések párosítása ---
     const movesOnly = history.filter(m => m.m !== "start");
     const rows = [];
@@ -34,64 +36,49 @@ const MoveListPanel = ({
             black: movesOnly[i + 1] || null
         });
     }
+
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
+
     // --- EREDMÉNY MEGHATÁROZÁSA ---
-    const getResultData = () => {
-    if (!isGameOver) return null;
-    if (status === "aborted" || (reason && reason.toLowerCase().includes("aborted"))) {
-        return {
-            score: "½-½",
-            winnerText: "Game Aborted",
-            reasonText: "Too few moves"
-        };
-    }
-    if (reason) {
-        const rLower = reason.toLowerCase();
-        if (rLower.includes("white wins")) {
-            let detail = "by Checkmate";
-            if (rLower.includes("resignation")) detail = "by Resignation";
-            if (rLower.includes("on time")) detail = "on Time";
-            return {
-                score: "1-0",
-                winnerText: "White Won",
-                reasonText: detail
-            };
+    // Módosított logika: Ha van 'result' prop, azt használjuk, különben kiszámoljuk
+    const finalResult = result || (() => {
+        if (!isGameOver) return null;
+        if (status === "aborted" || (reason && reason.toLowerCase().includes("aborted"))) {
+            return { score: "½-½", winnerText: "Game Aborted", reasonText: "Too few moves" };
         }
-        if (rLower.includes("black wins")) {
-            let detail = "by Checkmate";
-            if (rLower.includes("resignation")) detail = "by Resignation";
-            if (rLower.includes("on time")) detail = "on Time";
-            return {
-                score: "0-1",
-                winnerText: "Black Won",
-                reasonText: detail
-            };
+        if (reason) {
+            const rLower = reason.toLowerCase();
+            if (rLower.includes("white wins")) {
+                let detail = "by Checkmate";
+                if (rLower.includes("resignation")) detail = "by Resignation";
+                if (rLower.includes("on time")) detail = "on Time";
+                return { score: "1-0", winnerText: "White Won", reasonText: detail };
+            }
+            if (rLower.includes("black wins")) {
+                let detail = "by Checkmate";
+                if (rLower.includes("resignation")) detail = "by Resignation";
+                if (rLower.includes("on time")) detail = "on Time";
+                return { score: "0-1", winnerText: "Black Won", reasonText: detail };
+            }
+            if (rLower.includes("draw")) {
+                const reasonDetail = reason.replace(/Draw\s+/i, "");
+                return { score: "½-½", winnerText: "Draw", reasonText: reasonDetail || "by Rule" };
+            }
         }
-        if (rLower.includes("draw")) {
-            const reasonDetail = reason.replace(/Draw\s+/i, "");
-            return {
-                score: "½-½",
-                winnerText: "Draw",
-                reasonText: reasonDetail || "by Rule"
-            };
+        if (status === "resigned") {
+            return isFlipped
+                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
+                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
         }
-    }
-    if (status === "resigned") {
-        return isFlipped
-            ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
-            : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
-    }
-    if (status === "checkmate") {
-        const isWhiteLast = (movesOnly.length % 2 !== 0);
-        return isWhiteLast
-            ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
-            : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
-    }
-    if (status === "draw" || status === "stalemate") {
+        if (status === "checkmate") {
+            const isWhiteLast = (movesOnly.length % 2 !== 0);
+            return isWhiteLast
+                ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
+                : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
+        }
         return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
-    }
-    return { score: "*", winnerText: "Game Over", reasonText: "" };
-};
+    })();
+
     return (
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
             {/* MEGNYITÁS KIJELZŐ SZEKCIÓ */}
@@ -99,9 +86,6 @@ const MoveListPanel = ({
                 {opening ? (
                     <div>
                         <div className="flex items-center gap-2 mb-0.5">
-                            <span className="bg-[#3d3a37] text-[#bab9b8] text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                {opening.eco}
-                            </span>
                             <span className="text-[#8b8987] text-[11px] font-bold uppercase tracking-tight italic">
                                 Opening
                             </span>
@@ -114,6 +98,7 @@ const MoveListPanel = ({
                     <div className="text-[#636261] text-sm italic">Initial Phase</div>
                 )}
             </div>
+
             {/* Felső Tabok */}
             <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
                 <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
@@ -124,6 +109,7 @@ const MoveListPanel = ({
                 <TopTab icon="fa-th" label="Games" />
                 <TopTab icon="fa-users" label="Players" />
             </div>
+
             {/* Tartalmi rész */}
             <div className="flex-1 overflow-y-auto no-scrollbar bg-[#262421]">
                 <div className="flex bg-chess-panel-header text-[13px] font-bold text-[#989795] border-b border-[#1b1a18] sticky top-0 z-10">
@@ -131,19 +117,33 @@ const MoveListPanel = ({
                     <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Chat</div>
                     <div className="py-3 px-8 cursor-pointer hover:text-white transition-colors">Info</div>
                 </div>
+
                 <div className="flex flex-col">
                     {rows.map((row, i) => {
                         const whiteIdx = getHistoryIndex(row.white);
                         const blackIdx = getHistoryIndex(row.black);
                         return (
-                            <div key={i} className={`flex h-10 items-center ${i % 2 === 0 ? 'bg-[#2b2926]' : 'bg-transparent'} hover:bg-[#33312e]/50`}>
+                            <div key={i} className={`flex h-10 items-center ${i % 2 === 0 ? 'bg-[#2b2926]' : 'bg-transparent'}`}>
                                 <div className="w-10 text-center text-[#666] text-[13px] font-semibold shrink-0">{row.moveNumber}.</div>
-                                <div onClick={() => goToMove(whiteIdx)} className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] rounded-sm transition-colors ${viewIndex === whiteIdx ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-[#33312e]'}`}>
-                                    {renderNotation(row.white.m)}
-                                </div>
-                                <div onClick={() => row.black && goToMove(blackIdx)} className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] rounded-sm transition-colors ${row.black && viewIndex === blackIdx ? 'bg-[#403d39] text-white' : 'text-[#bab9b8] hover:bg-[#33312e]'}`}>
-                                    {row.black ? renderNotation(row.black.m) : ""}
-                                </div>
+                                {/* Világos lépése */}
+                                    <div 
+                                        onClick={() => goToMove(whiteIdx)} 
+                                        className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
+                                            viewIndex === whiteIdx ? 'text-white' : 'text-[#bab9b8] hover:text-white'
+                                        }`}
+                                    >
+                                        {renderNotation(row.white.m)}
+                                    </div>
+
+                                    {/* Sötét lépése */}
+                                    <div 
+                                        onClick={() => row.black && goToMove(blackIdx)} 
+                                        className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
+                                            row.black && viewIndex === blackIdx ? 'text-white' : 'text-[#bab9b8] hover:text-white'
+                                        }`}
+                                    >
+                                        {row.black ? renderNotation(row.black.m) : ""}
+                                    </div>
                                 <div className="flex-1"></div>
                                 <div className="w-16 flex flex-col justify-center pr-3 border-l border-chess-bg/30">
                                     <div className="flex items-center justify-end gap-1 leading-none text-[10px] text-[#989795]">
@@ -160,14 +160,16 @@ const MoveListPanel = ({
                             </div>
                         );
                     })}
-                    {showEndGameUI && getResultData() && (
+
+                    {/* ITT HASZNÁLJUK A finalResult-ot, ami priorizálja a result propot */}
+                    {showEndGameUI && finalResult && (
                         <div className="mt-4 mx-2 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                             <div className="flex items-center justify-between px-4 py-4 bg-chess-panel-header border border-chess-bg rounded-md shadow-inner">
                                 <div className="flex items-center gap-4">
-                                    <span className="text-white font-black text-2xl tracking-tighter">{getResultData().score}</span>
+                                    <span className="text-white font-black text-2xl tracking-tighter">{finalResult.score}</span>
                                     <div className="flex flex-col">
-                                        <span className="text-white font-bold text-sm leading-none">{getResultData().winnerText}</span>
-                                        <span className="text-[#989795] text-[11px] uppercase font-bold tracking-wider mt-1">{getResultData().reasonText}</span>
+                                        <span className="text-white font-bold text-sm leading-none">{finalResult.winnerText}</span>
+                                        <span className="text-[#989795] text-[11px] uppercase font-bold tracking-wider mt-1">{finalResult.reasonText}</span>
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-center w-10 h-10 bg-[#2b2a27] rounded-full border border-chess-bg">
@@ -178,32 +180,34 @@ const MoveListPanel = ({
                     )}
                 </div>
             </div>
+
             {/* Alsó vezérlők */}
             <div className="bg-chess-panel-header flex flex-col border-t border-[#1b1a18]">
-    {showEndGameUI && (
-        <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
-            <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
-                <i className="fas fa-microscope"></i> Game Review
-            </button>
-            <div className="grid grid-cols-2 gap-2 pt-3">
-                <button
-                    onClick={() => {
-                        resetGame();
-                        setIsSelectingBot(true);
-                    }}
-                    className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
-                >
-                    <i className="fas fa-plus"></i> New Bot
-                </button>
-                <button
-                    onClick={() => startNewGame(difficultyChoice, userChoiceColor, lastTimeControl)}
-                    className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
-                >
-                    <i className="fas fa-sync-alt"></i> Rematch
-                </button>
-            </div>
-        </div>
-    )}
+                {showEndGameUI && (
+                    <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
+                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
+                            <i className="fas fa-microscope"></i> Game Review
+                        </button>
+                        <div className="grid grid-cols-2 gap-2 pt-3">
+                            <button
+                                onClick={() => {
+                                    resetGame();
+                                    setIsSelectingBot(true);
+                                }}
+                                className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
+                            >
+                                <i className="fas fa-plus"></i> New Bot
+                            </button>
+                            <button
+                                onClick={() => startNewGame(difficultyChoice, userChoiceColor, lastTimeControl)}
+                                className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
+                            >
+                                <i className="fas fa-sync-alt"></i> Rematch
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 <div className="p-3 flex gap-1 bg-chess-panel-header">
                     <NavBtn icon="fa-step-backward" onClick={() => goToMove(0)} active={viewIndex !== 0} />
                     <NavBtn icon="fa-chevron-left"
@@ -227,6 +231,7 @@ const MoveListPanel = ({
                     />
                     <NavBtn icon="fa-step-forward" onClick={() => goToMove(-1)} active={viewIndex !== -1} />
                 </div>
+
                 <div className="p-3 bg-chess-panel-header flex justify-between items-center text-[#989795] border-t border-[#1b1a18]">
                     {isOngoing ? (
                         <div className="flex gap-4 items-center">
@@ -255,12 +260,15 @@ const MoveListPanel = ({
         </div>
     );
 };
+
+// ... TopTab és NavBtn marad változatlan ...
 const TopTab = ({ icon, label, active, onClick }) => (
     <div onClick={onClick} className={`flex flex-col items-center py-2 px-1 flex-1 cursor-pointer transition-colors border-b-2 ${active ? 'bg-[#262421] border-[#81b64c] text-white' : 'border-transparent text-[#989795] hover:bg-[#2b2926]'}`}>
         <i className={`fas ${icon} text-lg mb-1`}></i>
         <span className="text-[9px] font-bold uppercase">{label}</span>
     </div>
 );
+
 const NavBtn = ({ icon, onClick, active }) => (
     <button
         onClick={active ? onClick : undefined}
@@ -269,4 +277,5 @@ const NavBtn = ({ icon, onClick, active }) => (
         <i className={`fas ${icon} text-sm`}></i>
     </button>
 );
+
 export default MoveListPanel;

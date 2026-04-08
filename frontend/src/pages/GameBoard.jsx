@@ -247,11 +247,13 @@ const GameBoard = () => {
     };
    return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
+            {/* Bal oldali kiértékelő sáv (példa helye) */}
             <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
                 <div className="bg-white w-full h-[50%] transition-all"></div>
             </div>
+
             <div className="flex flex-col justify-center items-center h-full shrink-0">
-                {/* ELLENFÉL ÓRÁJA (FENT) */}
+                {/* ELLENFÉL SZAKASZ (FENT) */}
                 <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
@@ -272,32 +274,37 @@ const GameBoard = () => {
                             )}
                         </div>
                     </div>
-                    {/* Óra kijelzés: Ha te világos vagy, ő a sötét (fekete háttér). Ha te sötét (isFlipped), ő a világos (fehér). */}
-                    <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
-                        isFlipped 
-                        ? "bg-white text-[#2b2a27]" 
-                        : "bg-[#262421] text-white"
-                    } ${activeTimeColor === (isFlipped ? 'w' : 'b') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
-                        <div className="shrink-0">
-                            <ClockIcon
-                                isActive={activeTimeColor === (isFlipped ? 'w' : 'b')}
-                                currentSeconds={isFlipped ? whiteTime : blackTime}
-                            />
+
+                    {/* ELLENFÉL ÓRÁJA */}
+                    {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
+                        <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
+                            isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
+                        } ${activeTimeColor === (isFlipped ? 'w' : 'b') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
+                            <div className="shrink-0">
+                                <ClockIcon
+                                    isActive={activeTimeColor === (isFlipped ? 'w' : 'b')}
+                                    currentSeconds={isFlipped ? whiteTime : blackTime}
+                                />
+                            </div>
+                            <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
+                                {formatSeconds(isFlipped ? whiteTime : blackTime)}
+                            </span>
                         </div>
-                        <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                            {formatSeconds(isFlipped ? whiteTime : blackTime)}
-                        </span>
-                    </div>
+                    )}
                 </div>
-                {/* TÁBLA SZEKCIÓ */}
+
+                {/* TÁBLA ÉS POPUPOK */}
                 <div className="relative shrink-0 p-0 m-0">
                     <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative"
                          style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
+                        
                         <ChessBoardGrid
                             gameLogic={{ ...gameLogic, isFlipped }}
                             onMouseDown={handleMouseDown}
                             onMouseUp={handleMouseUp}
                         />
+
+                        {/* GYALOGÁTVÁLTOZÁS POPUP */}
                         <AnimatePresence>
                             {pendingPromotion && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -316,6 +323,8 @@ const GameBoard = () => {
                                 </motion.div>
                             )}
                         </AnimatePresence>
+
+                        {/* JÁTÉK VÉGE POPUP */}
                         <AnimatePresence>
                             {delayedShowPopup && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -347,7 +356,8 @@ const GameBoard = () => {
                         </AnimatePresence>
                     </div>
                 </div>
-                {/* SAJÁT ÓRA (LENT) */}
+
+                {/* SAJÁT SZAKASZ (LENT) */}
                 <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
@@ -357,25 +367,27 @@ const GameBoard = () => {
                             <span className="text-[#bab9b8] font-bold text-[14px] leading-none">You</span>
                         </div>
                     </div>
-                    {/* Saját óra: Ha fehér vagy, fehér háttér. Ha sötét (isFlipped), fekete háttér. */}
-                    <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
-                        isFlipped 
-                        ? "bg-[#262421] text-white" 
-                        : "bg-white text-[#2b2a27]"
-                    } ${activeTimeColor === (isFlipped ? 'b' : 'w') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
-                        <div className="shrink-0">
-                            <ClockIcon
-                                isActive={activeTimeColor === (isFlipped ? 'b' : 'w')}
-                                currentSeconds={isFlipped ? blackTime : whiteTime}
-                            />
+
+                    {/* SAJÁT ÓRA */}
+                    {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
+                        <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
+                            isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
+                        } ${activeTimeColor === (isFlipped ? 'b' : 'w') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
+                            <div className="shrink-0">
+                                <ClockIcon
+                                    isActive={activeTimeColor === (isFlipped ? 'b' : 'w')}
+                                    currentSeconds={isFlipped ? blackTime : whiteTime}
+                                />
+                            </div>
+                            <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
+                                {formatSeconds(isFlipped ? blackTime : whiteTime)}
+                            </span>
                         </div>
-                        <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                            {formatSeconds(isFlipped ? blackTime : whiteTime)}
-                        </span>
-                    </div>
+                    )}
                 </div>
             </div>
-            {/* OLDALPANEL SZEKCIÓ */}
+
+            {/* OLDALPANEL (MoveList, BotSelection, PlaySelection) */}
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
                 {isGameActive ? (
                     <MoveListPanel
@@ -399,7 +411,10 @@ const GameBoard = () => {
                     />
                 ) : isSelectingBot ? (
                     <BotSelectionPanel
-                        onBack={() => setIsSelectingBot(false)}
+                        onBack={() => {
+                            setSelectedTime("No Timer");
+                            setIsSelectingBot(false);
+                        }}
                         onSelectBot={handleBotSelect}
                         onTimeChange={handleTimeChange}
                         onColorChange={handleSelectionColorChange}
@@ -411,6 +426,6 @@ const GameBoard = () => {
             </div>
         </div>
     );
-};
+};  
 
 export default GameBoard;

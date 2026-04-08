@@ -51,16 +51,28 @@ export const useChessGame = () => {
         return `${filesArr[col]}${8 - row}`;
     }, []);
     const [lastTimeControl, setLastTimeControl] = useState("No Timer");
+
     const renderNotation = useCallback((text) => {
-        if (!text || text === "start") return "";
-        const icons = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘' };
-        return icons[text[0]] ? (
+    if (!text || text === "start") return "";
+
+    const icons = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘' };
+    const firstChar = text[0];
+
+    // Ha a kezdőkarakter egy figura betűjele (K, Q, R, B, N)
+    if (icons[firstChar]) {
+        return (
             <span className="flex items-center">
-                <span className="text-[1.3em] mr-0.5 leading-none">{icons[text[0]]}</span>
-                {text.substring(1)}
+                {/* Az ikon megjelenítése */}
+                <span className="text-[1.3em] mr-0.5 leading-none">{icons[firstChar]}</span>
+                {/* A teljes szöveg megjelenítése (pl. Nf6), nem vágjuk le a betűt! */}
+                {text}
             </span>
-        ) : text;
-    }, []);
+        );
+    }
+    // Gyaloglépéseknél (pl. e4) vagy sáncolásnál (O-O) nincs ikon, marad az eredeti szöveg
+    return text;
+}, []);
+
     const fetchGameState = useCallback(async (id) => {
         if (!id || id === "null" || !token) return;
         try {
