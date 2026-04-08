@@ -11,6 +11,109 @@ from .auth import get_current_user_id
 import time
 import json
 import os
+from .analysis_engine import ChessCoachEngine
+
+
+coach = ChessCoachEngine()
+
+@router.post("/analyze-full-game/{game_id}")
+def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    game_uuid = uuid.UUID(game_id)
+    
+    # 1. Adatok lekérése a DB-ből
+    game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+    moves = db.query(models.Move).filter(models.Move.game_id == game_uuid).order_by(models.Move.move_number.asc()).all()
+    
+    if not game or not moves:
+        raise HTTPException(status_code=404, detail="Game or moves not found")
+
+    engine = get_engine()
+    board = chess.Board()
+    
+    # Eredmények tárolása statisztikához
+    full_analysis = []
+    phase_stats = {
+        "opening": {"losses": [], "counts": {}},
+        "middlegame": {"losses": [], "counts": {}},
+        "endgame": {"losses": [], "counts": {}}
+    }
+    
+    prev_eval = 30 # Kezdő érték (+0.3)
+    
+    # 2. LÉPÉSRŐL LÉPÉSRE ELEMZÉS
+    for m in moves:
+        if m.notation == "start":
+            continue
+
+        # Fázis detektálás (bábuérték alapú)
+        current_phase = coach.get_game_phase(board)
+        
+        # MÉLYELEMZÉS (MultiPV=3 a Great/Miss detektáláshoz)
+        # Depth 18-at használunk a profi pontosságért
+        analysis = engine.analyse(board, chess.engine.Limit(depth=18), multipv=3)
+        
+        try:
+            player_move = board.parse_san(m.notation)
+        except:
+            player_move = board.parse_uci(m.notation)
+
+        # Kategorizálás (Brilliant, Great, Miss, stb.)
+        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval)
+        
+        # Win Chance számítás a statisztikához
+        is_white = board.turn == chess.WHITE
+        best_eval = analysis[0]["score"].white().score(mate_score=10000)
+        
+        wc_best = coach.get_win_chance(best_eval if is_white else -best_eval)
+        wc_actual = coach.get_win_chance(move_eval if is_white else -move_eval)
+        loss = max(0, wc_best - wc_actual)
+
+        # Statisztikák gyűjtése
+        phase_stats[current_phase]["losses"].append(loss)
+        phase_stats[current_phase]["counts"][label] = phase_stats[current_phase]["counts"].get(label, 0) + 1
+
+        # Lépés adatainak mentése
+        full_analysis.append({
+            "move_number": m.move_number,
+            "notation": m.notation,
+            "label": label,
+            "eval": move_eval / 100.0 if abs(move_eval) < 5000 else f"M{int((10000-abs(move_eval))/100)}",
+            "best_move": board.san(analysis[0]["pv"][0]),
+            "phase": current_phase
+        })
+
+        # Tábla frissítése és eval mentése a következő körhöz
+        board.push(player_move)
+        prev_eval = move_eval
+
+    # 3. ÖSSZEGZÉS GENERÁLÁSA (The Coach's Voice)
+    summary = {}
+    total_losses = []
+    
+    for phase in ["opening", "middlegame", "endgame"]:
+        losses = phase_stats[phase]["losses"]
+        if losses:
+            acc = coach.calculate_accuracy(losses)
+            total_losses.extend(losses)
+            
+            # Dinamikus szöveges értékelés
+            rating = "Best" if acc > 97 else "Great" if acc > 90 else "Excellent" if acc > 80 else "Good" if acc > 70 else "Inaccurate"
+            summary[phase] = {
+                "accuracy": acc,
+                "rating": rating,
+                "stats": phase_stats[phase]["counts"]
+            }
+
+    overall_accuracy = coach.calculate_accuracy(total_losses)
+
+    # 4. VÁLASZ A FRONTENDNEK
+    return {
+        "game_id": game_id,
+        "overall_accuracy": overall_accuracy,
+        "summary": summary,
+        "analysis": full_analysis,
+        "player_color": game.player_color
+    }
 
 OPENING_BOOK = {}
 
@@ -665,3 +768,4 @@ def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Sess
         db.commit()
         return {"status": "draw", "reason": "Draw by agreement"}
     return {"status": "not_found"}
+
