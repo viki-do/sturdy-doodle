@@ -43,20 +43,51 @@ const GameBoard = () => {
         setLastMove({ from: null, to: null });
     };
     // ---------------------
-    const formatSeconds = (totalSeconds) => {
-        const total = Math.round(totalSeconds * 10) / 10;
-        const hours = Math.floor(total / 3600);
-        const mins = Math.floor((total % 3600) / 60);
-        const secs = Math.floor(total % 60);
-        if (total < 10) {
-            const tenths = Math.floor((total % 1) * 10);
-            return `0:${secs.toString().padStart(2, '0')}.${tenths}`;
-        }
-        if (hours > 0) {
-            return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
+  const formatSeconds = (totalSeconds) => {
+    // 1. Biztonsági kör: kényszerítsük számmá és ne engedjük negatívba
+    const total = Math.max(0, Number(totalSeconds) || 0);
+    
+    // 2. 10 másodperc ALATT: 0:09.4 formátum (tizedesekkel)
+    if (total < 10) {
+        const secs = Math.floor(total);
+        const tenths = Math.floor((total * 10) % 10);
+        return `0:0${secs}.${tenths}`;
+    }
+    
+    // 3. 10 másodperc FELETT: Sima MM:SS (lefelé kerekítve)
+    // A Math.floor biztosítja, hogy ha 50.9 másodperced van, az 50-nek látszódjon.
+    // Ez szinkronban lesz a MoveListPanel tizedeseivel.
+    const roundedTotal = Math.floor(total); 
+    const hours = Math.floor(roundedTotal / 3600);
+    const mins = Math.floor((roundedTotal % 3600) / 60);
+    const secs = roundedTotal % 60;
+
+    if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+const getDisplayTime = (color) => {
+    const config = gameLogic.parseTimeControl(lastTimeControl);
+    // Kényszerítsük a baseTime-ot is pontos számra
+    const baseTime = Number(config?.base) || 600;
+
+    if (viewIndex === -1) {
+        return color === 'w' ? whiteTime : blackTime;
+    }
+
+    if (viewIndex === 0 || history[viewIndex]?.m === "start") {
+        return baseTime;
+    }
+
+    const move = history[viewIndex];
+    if (!move) return baseTime;
+
+    // Itt ne kerekítsünk, csak adjuk vissza a nyers számot, 
+    // a formatSeconds majd elintézi a kerekítést a kijelzőn!
+    return color === 'w' ? move.wTime : move.bTime;
+};
+
     const isGameActive = !!gameId && gameId !== "null";
     const [isStarting, setIsStarting] = useState(false);
     const handleBotSelect = async (bot, color, time) => {
@@ -274,20 +305,19 @@ const GameBoard = () => {
                             )}
                         </div>
                     </div>
-
                     {/* ELLENFÉL ÓRÁJA */}
                     {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
-                        } ${activeTimeColor === (isFlipped ? 'w' : 'b') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
+                        } ${activeTimeColor === (isFlipped ? 'w' : 'b') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
                             <div className="shrink-0">
                                 <ClockIcon
-                                    isActive={activeTimeColor === (isFlipped ? 'w' : 'b')}
-                                    currentSeconds={isFlipped ? whiteTime : blackTime}
+                                    isActive={viewIndex === -1 && activeTimeColor === (isFlipped ? 'w' : 'b')}
+                                    currentSeconds={isFlipped ? getDisplayTime('w') : getDisplayTime('b')}
                                 />
                             </div>
                             <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                                {formatSeconds(isFlipped ? whiteTime : blackTime)}
+                                {formatSeconds(isFlipped ? getDisplayTime('w') : getDisplayTime('b'))}
                             </span>
                         </div>
                     )}
@@ -368,19 +398,18 @@ const GameBoard = () => {
                         </div>
                     </div>
 
-                    {/* SAJÁT ÓRA */}
                     {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
-                        } ${activeTimeColor === (isFlipped ? 'b' : 'w') ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
+                        } ${activeTimeColor === (isFlipped ? 'b' : 'w') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
                             <div className="shrink-0">
                                 <ClockIcon
-                                    isActive={activeTimeColor === (isFlipped ? 'b' : 'w')}
-                                    currentSeconds={isFlipped ? blackTime : whiteTime}
+                                    isActive={viewIndex === -1 && activeTimeColor === (isFlipped ? 'b' : 'w')}
+                                    currentSeconds={isFlipped ? getDisplayTime('b') : getDisplayTime('w')}
                                 />
                             </div>
                             <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                                {formatSeconds(isFlipped ? blackTime : whiteTime)}
+                                {formatSeconds(isFlipped ? getDisplayTime('b') : getDisplayTime('w'))}
                             </span>
                         </div>
                     )}

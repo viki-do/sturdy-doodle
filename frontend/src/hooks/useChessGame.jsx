@@ -37,6 +37,7 @@ export const useChessGame = () => {
     const whiteWarnedRef = useRef(false);
     const blackWarnedRef = useRef(false);
     const [opening, setOpening] = useState(null);
+    const turnStartTimeRef = useRef(Date.now());
     // HANG SZINKRONIZÁCIÓHOZ SZÜKSÉGES REF ÉS STATE-EK
     const lastPlayedMoveNum = useRef(0);
     const lastPlayedTickRef = useRef(-1);
@@ -98,102 +99,139 @@ export const useChessGame = () => {
             }
         } catch (err) { console.error(err); }
     }, [token, API_BASE]);
-    const executeMove = async (from, to, promotion = null) => {
-        const chess = new Chess(fen);
-        const piece = chess.get(from);
-        if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
-            setPendingPromotion({ from, to });
-            setIsDragging(false);
-            return;
-        }
-        const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
-        if (!moveAttempt) return;
-        // --- SAJÁT IDŐ KISZÁMÍTÁSA ---
-        const baseTime = parseTimeControl(lastTimeControl).base || 600;
-        const currentTime = activeTimeColor === 'w' ? whiteTime : blackTime;
-        const myThinkingTimeValue = Math.max(0.1, Math.abs(baseTime - currentTime)).toFixed(1);
-        // --- BOT RANDOM IDŐ GENERÁLÁSA ---
-        const botThinkingTimeValue = (Math.random() * (2.8 - 1.5) + 1.5).toFixed(1);
-        const myMoveForHistory = {
-            m: moveAttempt.san,
-            from: from,
-            to: to,
-            fen: chess.fen(),
-            t: parseFloat(myThinkingTimeValue),
-            num: lastPlayedMoveNum.current + 1
-        };
-        setHistory(prev => [...prev, myMoveForHistory]);
-        // Óra váltása azonnal
-        if (activeTimeColor) {
-            if (activeTimeColor === 'w') {
-                setWhiteTime(prev => prev + increment);
-                setActiveTimeColor('b');
-            } else {
-                setBlackTime(prev => prev + increment);
-                setActiveTimeColor('w');
-            }
-        }
-        setPendingPromotion(null);
-        setFen(chess.fen());
-        setLastMove({ from, to });
-        setSelectedSquare(null);
-        setValidMoves([]);
+
+
+const executeMove = async (from, to, promotion = null) => {
+    const chess = new Chess(fen);
+    const piece = chess.get(from);
+
+    if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
+        setPendingPromotion({ from, to });
         setIsDragging(false);
-        lastPlayedMoveNum.current += 1;
-        // --- SAJÁT LÉPÉS HANGJAI (Eredeti sorrend) ---
-        setTimeout(() => {
-            if (chess.isCheckmate()) playSound('checkmate');
-            else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
-            else if (moveAttempt.flags.includes('p') || moveAttempt.flags.includes('cp')) playSound('promote');
-            else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
-            else if (chess.isCheck()) playSound('move-check');
-            else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
-            else playSound('move');
-        }, 10);
-        try {
-            const res = await axios.post(`${API_BASE}/move`,
-                { game_id: gameId, move: `${from}${to}${promotion || ""}` },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            const bot = res.data.bot_move;
-            if (bot && bot.from) {
-                // --- BOT KÉSLELTETÉS ---
-                setTimeout(() => {
-                    const botMoveEntry = {
-                        m: bot.san,
-                        from: bot.from,
-                        to: bot.to,
-                        fen: res.data.new_fen,
-                        t: parseFloat(botThinkingTimeValue),
-                        num: lastPlayedMoveNum.current + 1
-                    };
-                    // History frissítése a bot lépésével
-                    setHistory(prev => [...prev, botMoveEntry]);
-                    setFen(res.data.new_fen);
-                    setLastMove({ from: bot.from, to: bot.to });
-                    lastPlayedMoveNum.current += 1;
-                    if (res.data.status) setStatus(res.data.status);
-                    if (res.data.opening) setOpening(res.data.opening);
-                    if (activeTimeColor) {
-                        const nextColor = res.data.new_fen.split(' ')[1];
-                        setActiveTimeColor(nextColor);
-                        if (nextColor === 'w') setBlackTime(prev => prev + increment);
-                        else setWhiteTime(prev => prev + increment);
-                    }
-                    // --- BOT HANGOK ---
-                    const isCheckmate = res.data.status === "checkmate";
-                    const isDraw = res.data.status && res.data.status !== "ongoing" && !isCheckmate;
-                    if (isCheckmate) playSound('checkmate');
-                    else if (isDraw) playSound('stalemate');
-                    else if (bot.san?.includes('=')) playSound('promote');
-                    else if (bot.san?.includes('+')) playSound('move-check');
-                    else if (bot.san?.includes('O-O')) playSound('castle');
-                    else if (bot.san?.includes('x')) playSound('capture');
-                    else playSound('move');
-                }, parseFloat(botThinkingTimeValue) * 1000);
-            }
-        } catch (err) { console.error(err); }
+        return;
+    }
+
+    const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
+    if (!moveAttempt) return;
+
+    // --- 1. MATEMATIKA: CSAK A VALÓSÁGOT RÖGZÍTJÜK ---
+    const now = Date.now();
+    // Mennyi telt el a kör eleje óta (Date.now különbség)
+    const elapsed = (now - turnStartTimeRef.current) / 1000;
+    const isWhiteTurn = activeTimeColor === 'w';
+
+    // A JELENLEGI state-ből indulunk ki (whiteTime/blackTime), 
+    // mert a ketyegő useEffect Date.now() alapú, tehát ez az érték PONTOS.
+    const currentW = whiteTime;
+    const currentB = blackTime;
+
+    // Kiszámoljuk a history-ba kerülő időket
+    // Itt válik el a két szín: csak az egyiket csökkentjük!
+    const saveWhite = isWhiteTurn ? currentW : whiteTime; 
+    const saveBlack = !isWhiteTurn ? currentB : blackTime;
+
+    const myMoveForHistory = {
+        m: moveAttempt.san,
+        from, to,
+        fen: chess.fen(),
+        t: parseFloat(elapsed.toFixed(1)),
+        num: lastPlayedMoveNum.current + 1,
+        wTime: saveWhite,
+        bTime: saveBlack
     };
+
+    setHistory(prev => [...prev, myMoveForHistory]);
+
+    // --- 2. ÁTVÁLTÁS ÉS BÓNUSZ ---
+    // Itt adjuk hozzá az incrementet az élő órához
+    if (isWhiteTurn) {
+        setWhiteTime(prev => prev + increment);
+        setActiveTimeColor('b');
+    } else {
+        setBlackTime(prev => prev + increment);
+        setActiveTimeColor('w');
+    }
+
+    // ÚJ KÖR INDUL - Itt nullázzuk a stopperórát a következő játékosnak
+    turnStartTimeRef.current = Date.now();
+
+    // UI/Logic reset
+    setPendingPromotion(null);
+    setFen(chess.fen());
+    setLastMove({ from, to });
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setIsDragging(false);
+    lastPlayedMoveNum.current += 1;
+
+    // Hangok (minden opcióval)
+    setTimeout(() => {
+        if (chess.isCheckmate()) playSound('checkmate');
+        else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
+        else if (moveAttempt.flags.includes('p') || moveAttempt.flags.includes('cp')) playSound('promote');
+        else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
+        else if (chess.isCheck()) playSound('move-check');
+        else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
+        else playSound('move');
+    }, 10);
+
+    // --- 3. BOT LÉPÉS KEZELÉSE ---
+    try {
+        const res = await axios.post(`${API_BASE}/move`, 
+            { game_id: gameId, move: `${from}${to}${promotion || ""}` }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        const bot = res.data.bot_move;
+        if (bot && bot.from) {
+            const botThinkingDelay = Math.random() * (2.8 - 1.5) + 1.5;
+
+            setTimeout(() => {
+                const botSnapW = whiteTime;
+                const botSnapB = blackTime;
+                
+                const isBotWhite = res.data.new_fen.split(' ')[1] === 'b'; 
+
+                const botMoveEntry = {
+                    m: bot.san,
+                    from: bot.from,
+                    to: bot.to,
+                    fen: res.data.new_fen,
+                    t: parseFloat(((Date.now() - turnStartTimeRef.current) / 1000).toFixed(1)),
+                    num: lastPlayedMoveNum.current + 1,
+                    wTime: botSnapW,
+                    bTime: botSnapB
+                };
+
+                setHistory(prev => [...prev, botMoveEntry]);
+                
+                // Óra bónusz + átadás
+                if (isBotWhite) setWhiteTime(prev => prev + increment);
+                else setBlackTime(prev => prev + increment);
+
+                const nextColor = res.data.new_fen.split(' ')[1];
+                setActiveTimeColor(nextColor);
+                turnStartTimeRef.current = Date.now();
+
+                setFen(res.data.new_fen);
+                setLastMove({ from: bot.from, to: bot.to });
+                lastPlayedMoveNum.current += 1;
+                if (res.data.status) setStatus(res.data.status);
+                if (res.data.opening) setOpening(res.data.opening);
+
+                // Bot hangok
+                const isCheckmateStatus = res.data.status === "checkmate";
+                if (isCheckmateStatus) playSound('checkmate');
+                else if (bot.san?.includes('=')) playSound('promote');
+                else if (bot.san?.includes('+')) playSound('move-check');
+                else if (bot.san?.includes('O-O')) playSound('castle');
+                else if (bot.san?.includes('x')) playSound('capture');
+                else playSound('move');
+
+            }, botThinkingDelay * 1000);
+        }
+    } catch (err) { console.error("Move error:", err); }
+};
     // POLLING: Csak akkor játszik hangot, ha olyan lépés jön, amit még nem "láttunk"
     useEffect(() => {
     let interval;
@@ -236,37 +274,47 @@ export const useChessGame = () => {
 useEffect(() => {
     let timer;
     if (gameId && status === "ongoing" && activeTimeColor) {
+        // Rögzítjük a pillanatot, amikor elindul ez a kör
+        const startTime = Date.now();
+        // Elmentjük, mennyi idő volt az órán az indításkor
+        const startValue = activeTimeColor === 'w' ? whiteTime : blackTime;
+
         timer = setInterval(async () => {
-            const isWhite = activeTimeColor === 'w';
-            const currentTime = isWhite ? whiteTime : blackTime;
-            if (currentTime <= 0) {
-    clearInterval(timer);
-    setActiveTimeColor(null);
-    try {
-        const res = await axios.post(`${API_BASE}/move`, {
-            game_id: gameId,
-            timeout: true
-        }, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.data.status) {
-            setStatus(res.data.status);
-            setReason(res.data.reason);
-            // Itt is: ha aborted, ne legyen győzelmi/vereségi hang
-            if (res.data.status === "aborted") {
-                playSound('move');
+            const now = Date.now();
+            // Kiszámoljuk, pontosan hány másodperc telt el az indítás óta
+            const elapsed = (now - startTime) / 1000;
+            const newValue = Math.max(0, startValue - elapsed);
+
+            // Csak az éppen aktív órát frissítjük
+            if (activeTimeColor === 'w') {
+                setWhiteTime(newValue);
             } else {
-                playSound('game-end');
+                setBlackTime(newValue);
             }
-            localStorage.removeItem('chessGameId');
-        }
-    } catch (err) { console.error("Timeout error:", err); }
-                return;
+
+            // Lejárt az idő (Zászlóleesés)
+            if (newValue <= 0) {
+                clearInterval(timer);
+                setActiveTimeColor(null);
+                try {
+                    const res = await axios.post(`${API_BASE}/move`, {
+                        game_id: gameId,
+                        timeout: true
+                    }, { headers: { Authorization: `Bearer ${token}` } });
+                    
+                    if (res.data.status) {
+                        setStatus(res.data.status);
+                        setReason(res.data.reason);
+                        playSound(res.data.status === "aborted" ? 'move' : 'game-end');
+                        localStorage.removeItem('chessGameId');
+                    }
+                } catch (err) { console.error("Timeout error:", err); }
             }
-            if (isWhite) setWhiteTime(prev => Math.max(0, Math.round((prev - 0.1) * 10) / 10));
-            else setBlackTime(prev => Math.max(0, Math.round((prev - 0.1) * 10) / 10));
-        }, 100);
+        }, 50);
     }
     return () => clearInterval(timer);
-}, [gameId, status, activeTimeColor, whiteTime, blackTime, API_BASE, token, playSound]);
+}, [gameId, status, activeTimeColor, API_BASE, token, playSound]);
+
 // EFFECT 2: A hang figyelése - Játékosonként pontosan egyszer 10 mp alatt
 useEffect(() => {
     if (status !== "ongoing" || !activeTimeColor) return;
@@ -311,64 +359,89 @@ useEffect(() => {
     setWhiteTime(600);        // Vagy amennyi az alapértelmezett
     setBlackTime(600);
 }, [lastTimeControl, parseTimeControl]);
+
+
+
 const startNewGame = useCallback(async (bot = { elo: 1500, id: 'engine' }, color = 'white', timeControl) => {
     // 1. IDŐZÍTÉS ÉS UI RESET
     const finalTimeControl = timeControl || lastTimeControl || "No Timer";
     const config = parseTimeControl(finalTimeControl);
-    // Alaphelyzetbe állítások
+    const initialTime = config.base || 600;
+
+    // --- AZONNALI UI TISZTÍTÁS ---
     whiteWarnedRef.current = false;
     blackWarnedRef.current = false;
     setActiveTimeColor(null);
     setLastMove({ from: null, to: null });
     setLastTimeControl(finalTimeControl);
-    setHistory([]);
+    
+    // Itt nullázzuk a megnyitást, hogy ne maradjon ott az előző meccs neve
+    setOpening(null); 
+    
+    // Itt állítjuk be a kezdő history-t a NaN ellen
+    setHistory([{ m: "start", wTime: initialTime, bTime: initialTime, num: 0 }]);
+    
     setReason("");
     setViewIndex(-1);
-    // Órák beállítása a config alapján
-    const initialTime = config.base || 600;
     setWhiteTime(initialTime);
     setBlackTime(initialTime);
     setIncrement(config.inc || 0);
+
     try {
-        // 2. BACKEND HÍVÁS - Minden új paramétert küldünk
+        // 2. BACKEND HÍVÁS
         const res = await axios.post(`${API_BASE}/create-game`,
             {
-                color: color, // A backend most már kezeli a 'random'-ot, felesleges kliensen sorsolni
+                color: color,
                 bot_elo: bot.elo,
                 bot_id: bot.id,
                 bot_style: bot.style || "mix",
-                time_category: config.base < 180 ? "bullet" : config.base < 600 ? "blitz" : "rapid",
+                time_category: initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid",
                 base_time: initialTime,
                 time_control: finalTimeControl
             },
             { headers: { Authorization: `Bearer ${token}` } }
         );
+
         const { game_id: newId, player_color: assignedColor, fen: initialFen } = res.data;
+        
+        // Mentés és alapállapot beállítása
         localStorage.setItem('chessGameId', newId);
         setGameId(newId);
         setFen(initialFen);
         setStatus("ongoing");
         setSelectedSquare(null);
         setValidMoves([]);
+
         // 3. LÉPÉSSZÁMLÁLÓ ÉS ÓRA INDÍTÁSA
-        // Tisztább logika: Ha a táblán nem az alapállás van (bot már lépett), akkor 'b' jön.
+        // Megnézzük, történt-e már lépés (pl. bot kezdett fehérrel)
         const isBotMoved = initialFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        if (assignedColor === 'black' || isBotMoved) {
+        
+        if (isBotMoved) {
             lastPlayedMoveNum.current = 1;
-            setActiveTimeColor('b');
+            setActiveTimeColor('b'); // Ha a bot (fehér) már lépett, a sötét (játékos) jön
         } else {
             lastPlayedMoveNum.current = 0;
-            setActiveTimeColor('w');
+            setActiveTimeColor('w'); // Sima kezdés (fehér jön)
         }
+
         // 4. SZINKRON ÉS HANG
+        // Frissítjük a szerverről jövő adatokat (státusz, esetleges kezdőlépések)
         await fetchGameState(newId);
         playSound('game-start');
+        
+        // IDŐMÉRÉS INDÍTÁSA: Ekkor kezd el ketyegni az óra
+        turnStartTimeRef.current = Date.now(); 
+        
         return assignedColor;
     } catch (err) {
         console.error("Hiba az új játék indításakor:", err);
+        // Hiba esetén is nullázzuk az opening-et, ne mutasson fals adatot
+        setOpening(null);
         return color === 'black' ? 'black' : 'white';
     }
 }, [token, API_BASE, playSound, fetchGameState, parseTimeControl, lastTimeControl]);
+
+
     const handleMouseDown = async (e, row, col) => {
     if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
     const square = getSquareName(row, col);

@@ -39,13 +39,21 @@ const MoveListPanel = ({
 
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
-    // --- EREDMÉNY MEGHATÁROZÁSA ---
+    
     // Módosított logika: Ha van 'result' prop, azt használjuk, különben kiszámoljuk
-    const finalResult = result || (() => {
-        if (!isGameOver) return null;
+    // --- EREDMÉNY MEGHATÁROZÁSA ---
+    const finalResult = (() => {
+        // Ha tart a játék, vagy még nem dőlt el, ne mutassunk semmit
+        if (isOngoing || !isGameOver) return null;
+
+        // Ha a szülőtől kapunk kész eredményt, azt preferáljuk
+        if (result) return result;
+
+        // Ha nincs result, de a játék véget ért, kiszámoljuk a status/reason alapján
         if (status === "aborted" || (reason && reason.toLowerCase().includes("aborted"))) {
             return { score: "½-½", winnerText: "Game Aborted", reasonText: "Too few moves" };
         }
+        
         if (reason) {
             const rLower = reason.toLowerCase();
             if (rLower.includes("white wins")) {
@@ -65,18 +73,26 @@ const MoveListPanel = ({
                 return { score: "½-½", winnerText: "Draw", reasonText: reasonDetail || "by Rule" };
             }
         }
+
         if (status === "resigned") {
             return isFlipped
                 ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
                 : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
         }
+
         if (status === "checkmate") {
             const isWhiteLast = (movesOnly.length % 2 !== 0);
             return isWhiteLast
                 ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
                 : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
         }
-        return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
+
+        // Alapértelmezett döntetlen, de csak ha tényleg GameOver státuszban vagyunk
+        if (["draw", "stalemate"].includes(status)) {
+            return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
+        }
+
+        return null;
     })();
 
     return (
@@ -95,7 +111,7 @@ const MoveListPanel = ({
                         </div>
                     </div>
                 ) : (
-                    <div className="text-[#636261] text-sm italic">Initial Phase</div>
+                    <div className="text-[#636261] text-sm italic"></div>
                 )}
             </div>
 

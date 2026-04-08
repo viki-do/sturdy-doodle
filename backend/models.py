@@ -56,3 +56,7 @@ class Move(Base):
     fen_before = Column(Text, nullable=False)
     fen_after = Column(Text, nullable=True)  # Az állás a lépés megtétele után
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    accuracy_label = Column(String) # brilliant, great, blunder stb.
+    evaluation = Column(Float)      # az állás értéke a lépés után
+    best_move_uci = Column(String)  # mit kellett volna lépni
+    win_chance_drop = Column(Float) # %-os esélycsökkenés
