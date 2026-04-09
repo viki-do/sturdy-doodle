@@ -4,62 +4,69 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import GameBoard from './pages/GameBoard';
 import ProfilePage from './pages/ProfilePage';
-import Navbar from './components/Navbar'; // Ez a vertikális Sidebarod
+import Navbar from './components/Navbar';
+import HomePage from './pages/HomePage';
+import GameArchive from './pages/GameArchive'; // Győződj meg róla, hogy létrehoztad ezt a fájlt
 
 const App = () => {
-    // Ellenőrizzük a tokent az azonosításhoz
     const token = localStorage.getItem('chessToken');
     const isAuthenticated = !!token;
 
     return (
         <Router>
             <div className="flex min-h-screen bg-[#1e1e1e]">
-                {/* 1. GLOBÁLIS SIDEBAR: Csak ha be van jelentkezve */}
+                {/* A Navbar csak bejelentkezett felhasználóknak látszik */}
                 {isAuthenticated && <Navbar />}
 
-                {/* 2. TARTALMI RÉSZ: Ez tölti ki a Sidebar melletti helyet */}
                 <main className={`flex-1 ${isAuthenticated ? 'overflow-y-auto h-screen' : ''}`}>
                     <Routes>
                         {/* --- PUBLIKUS ÚTVONALAK --- */}
-                        {/* Ha már be van lépve és a loginra menne, dobjuk a játékhoz */}
                         <Route 
                             path="/login" 
-                            element={!isAuthenticated ? <LoginPage /> : <Navigate to="/play" />} 
+                            element={!isAuthenticated ? <LoginPage /> : <Navigate to="/home" />} 
                         />
                         <Route 
                             path="/register" 
-                            element={!isAuthenticated ? <RegisterPage /> : <Navigate to="/play" />} 
+                            element={!isAuthenticated ? <RegisterPage /> : <Navigate to="/home" />} 
                         />
 
-                        {/* --- VÉDETT ÚTVONALAK (Csak bejelentkezve) --- */}
+                        {/* --- VÉDETT ÚTVONALAK --- */}
+                        <Route 
+                            path="/home" 
+                            element={isAuthenticated ? <HomePage /> : <Navigate to="/login" />} 
+                        />
                         <Route 
                             path="/play" 
                             element={isAuthenticated ? <GameBoard /> : <Navigate to="/login" />} 
                         />
+                        
+                        {/* 1. Alap Profil oldal (10 játékos nézet + See More) */}
+                        <Route 
+                            path="/member/:username" 
+                            element={isAuthenticated ? <ProfilePage archiveMode={false} /> : <Navigate to="/login" />} 
+                        />
+
+                        {/* 2. Kibővített Profil (50 játékos nézet See More után) */}
+                        <Route 
+                            path="/member/:username/games" 
+                            element={isAuthenticated ? <ProfilePage archiveMode={true} /> : <Navigate to="/login" />} 
+                        />
+
+                        {/* 3. Teljes Játék Archívum (Külön UI, Home -> Game History-ról ide jutunk) */}
+                        <Route 
+                            path="/games/archive/:username"
+                            element={isAuthenticated ? <GameArchive /> : <Navigate to="/login" />} 
+                        />
+
+                        {/* Alapértelmezett átirányítások */}
                         <Route 
                             path="/profile" 
-                            element={isAuthenticated ? <ProfilePage /> : <Navigate to="/login" />} 
+                            element={<Navigate to={`/member/${localStorage.getItem('chessUsername') || 'user'}`} />} 
                         />
-
-                        {/* --- EGYÉB OLDALAK (Opcionális placeholder-ek a Sidebarhoz) --- */}
-                        <Route 
-                            path="/puzzles" 
-                            element={isAuthenticated ? <div className="p-10 text-white text-2xl">Puzzles hamarosan...</div> : <Navigate to="/login" />} 
-                        />
-                        <Route 
-                            path="/learn" 
-                            element={isAuthenticated ? <div className="p-10 text-white text-2xl">Tanulás szekció hamarosan...</div> : <Navigate to="/login" />} 
-                        />
-
-                        {/* --- REDIRECT LOGIKA --- */}
-                        {/* A gyökér könyvtár (/) kezelése */}
                         <Route 
                             path="/" 
-                            element={isAuthenticated ? <Navigate to="/play" /> : <Navigate to="/login" />} 
+                            element={isAuthenticated ? <Navigate to="/home" /> : <Navigate to="/login" />} 
                         />
-
-                        {/* Minden más ismeretlen útvonalat dobjunk vissza a kezdőre */}
-                        <Route path="*" element={<Navigate to="/" />} />
                     </Routes>
                 </main>
             </div>

@@ -778,7 +778,7 @@ def handle_timeout(data: dict, user_id: str = Depends(get_current_user_id), db: 
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     
-    
+
 @router.post("/offer-draw")
 def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     game_uuid = uuid.UUID(data.get("game_id"))
@@ -789,3 +789,45 @@ def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Sess
         return {"status": "draw", "reason": "Draw by agreement"}
     return {"status": "not_found"}
 
+@router.get("/get-latest-review-game")
+def get_latest_review_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    # Megkeressük a legutolsó játékot
+    # Opcionális: .filter(models.Game.is_analyzed == False) ha adsz ilyen oszlopot a DB-hez
+    latest_game = db.query(models.Game)\
+        .filter((models.Game.white_player_id == user_id) | (models.Game.black_player_id == user_id))\
+        .order_by(models.Game.created_at.desc())\
+        .first()
+    
+    if not latest_game:
+        return None
+
+    # Megkeressük az utolsó lépést, hogy megkapjuk a záró állást (FEN)
+    last_move = db.query(models.Move)\
+        .filter(models.Move.game_id == latest_game.id)\
+        .order_by(models.Move.move_number.desc())\
+        .first()
+
+    return {
+        "game_id": str(latest_game.id),
+        "opponent": latest_game.bot_id or "Opponent",
+        "last_fen": last_move.fen_after if last_move else "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "is_analyzed": False # Itt majd ellenőrizheted, hogy vannak-e Move.accuracy_label-ek a DB-ben
+    }
+
+@router.get("/user-games/{username}")
+def get_user_games(username: str, offset: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    games = db.query(models.Game)\
+        .filter((models.Game.white_player_id == user.id) | (models.Game.black_player_id == user.id))\
+        .order_by(models.Game.created_at.desc())\
+        .offset(offset)\
+        .limit(limit)\
+        .all()
+    
+    # Itt visszaküldjük a játékokat és az összesített számot is
+    total_count = db.query(models.Game).filter((models.Game.white_player_id == user.id) | (models.Game.black_player_id == user.id)).count()
+    
+    return {"games": games, "total": total_count}

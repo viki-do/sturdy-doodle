@@ -9,7 +9,7 @@ import {
     User, 
     Settings, 
     Bell, 
-    LogOut 
+    LogOut,
 } from 'lucide-react';
 
 const Navbar = () => {
@@ -17,23 +17,22 @@ const Navbar = () => {
     const location = useLocation();
     const username = localStorage.getItem('chessUsername');
 
-    // ÚJ FUNKCIÓ: Play gomb kezelése
-const handlePlayClick = (e) => {
-    e.preventDefault();
-    
-    // 1. Töröljük a mentett játék ID-t a tárolóból
-    localStorage.removeItem('chessGameId');
-    
-    // 2. Navigáció és frissítés kezelése
-    if (location.pathname === '/play') {
-        // Ha már ott vagyunk, kényszerítjük az újratöltést, 
-        // így a useChessGame alaphelyzetben (null gameId-val) indul el.
-        window.location.reload();
-    } else {
-        // Ha máshonnan jövünk, csak navigálunk a Play oldalra
-        navigate('/play');
-    }
-};
+    // Home gomb/Logo kezelése
+    const handleHomeClick = (e) => {
+        e.preventDefault();
+        navigate('/home');
+    };
+
+    // Play gomb kezelése (marad a speciális logika)
+    const handlePlayClick = (e) => {
+        e.preventDefault();
+        localStorage.removeItem('chessGameId');
+        if (location.pathname === '/play') {
+            window.location.reload();
+        } else {
+            navigate('/play');
+        }
+    };
 
     const handleLogout = () => {
         localStorage.clear();
@@ -44,10 +43,10 @@ const handlePlayClick = (e) => {
     const isActive = (path) => location.pathname === path;
 
     return (
-        <aside className="w-35 lg:w-40 h-screen bg-[#262421] flex flex-col py-4 border-r border-chess-bg sticky top-0 left-0 z-1000">
-            {/* Logo Szekció - Itt is érdemes a handlePlayClick-et használni */}
+        <aside className="w-35 lg:w-40 h-screen bg-[#262421] flex flex-col py-4 border-r border-[#3c3a37] sticky top-0 left-0 z-1000">
+            {/* Logo Szekció - Most már a /home-ra visz */}
             <div 
-                onClick={handlePlayClick} 
+                onClick={handleHomeClick} 
                 className="flex flex-col items-center gap-1 mb-8 no-underline text-white group px-2 text-center cursor-pointer"
             >
                 <img 
@@ -61,15 +60,17 @@ const handlePlayClick = (e) => {
             </div>
 
             <nav className="flex-1 flex flex-col gap-1 px-2">
-                {/* NavItem módosítása, hogy kezelje a kattintást */}
+            
+                {/* Play menüpont a handlePlayClick logikával */}
                 <div onClick={handlePlayClick} className="cursor-pointer">
-    <NavItem 
-        to="/play" 
-        icon={<Gamepad2 size={24} />} 
-        label="Play" 
-        active={isActive('/play')} 
-    />
-</div>
+                    <NavItem 
+                        to="/play" 
+                        icon={<Gamepad2 size={24} />} 
+                        label="Play" 
+                        active={isActive('/play')} 
+                    />
+                </div>
+
                 <NavItem 
                     to="/puzzles" 
                     icon={<Puzzle size={24} />} 
@@ -90,16 +91,16 @@ const handlePlayClick = (e) => {
                 />
             </nav>
 
-            {/* Alsó Szekció: Keresés, Profil, Beállítások */}
-            <div className="mt-auto flex flex-col gap-2 px-2 pt-4 border-t border-chess-bg">
-                <button className="flex items-center gap-3 px-3 py-2 text-[#bab9b8] hover:bg-chess-bg hover:text-white rounded-lg transition-all cursor-pointer">
+            {/* Alsó Szekció */}
+            <div className="mt-auto flex flex-col gap-2 px-2 pt-4 border-t border-[#3c3a37]">
+                <button className="flex items-center gap-3 px-3 py-2 text-[#bab9b8] hover:bg-[#312e2b] hover:text-white rounded-lg transition-all cursor-pointer">
                     <Search size={20} />
                     <span className="text-sm font-semibold">Search</span>
                 </button>
 
                 <div 
-                    onClick={() => navigate('/profile')}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${isActive('/profile') ? 'bg-chess-bg text-white' : 'text-[#bab9b8] hover:bg-chess-bg hover:text-white'}`}
+                    onClick={() => navigate(`/member/${username}`)} // Ide írd át!
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${location.pathname.startsWith('/member') ? 'bg-[#312e2b] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'}`}
                 >
                     <div className="w-6 h-6 bg-[#454241] rounded flex justify-center items-center overflow-hidden">
                         <User size={16} className="text-[#81b64c]" />
@@ -128,17 +129,16 @@ const handlePlayClick = (e) => {
     );
 };
 
-// Segédkomponens a menüpontokhoz
 const NavItem = ({ to, icon, label, active, badge }) => (
     <Link 
         to={to} 
         className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all relative group ${
             active 
-            ? 's text-white' 
-            : 'text-[#bab9b8] hover:bg-chess-bg hover:text-white'
+            ? 'bg-[#312e2b] text-white shadow-sm' 
+            : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'
         }`}
     >
-        <span className={`${active ? 'text-white' : 'text-[#bab9b8] group-hover:text-white'}`}>
+        <span className={`${active ? 'text-[#81b64c]' : 'text-[#bab9b8] group-hover:text-white'}`}>
             {icon}
         </span>
         <span className="text-[15px] font-bold">{label}</span>
