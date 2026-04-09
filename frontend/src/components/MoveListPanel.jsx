@@ -1,4 +1,5 @@
 import React from 'react';
+import { moves } from '../constants/review';
 
 const MoveListPanel = ({
     history,
@@ -21,6 +22,9 @@ const MoveListPanel = ({
     lastTimeControl,
     result,
     opening,
+    handleRunFullAnalysis,
+    analysisData,
+    isAnalyzing
 }) => {
     const isOngoing = status === "ongoing";
     const isGameOver = ["resigned", "checkmate", "draw", "stalemate", "aborted", "finished"].includes(status);
@@ -39,17 +43,28 @@ const MoveListPanel = ({
 
     const getHistoryIndex = (moveObj) => moveObj ? history.findIndex(h => h.num === moveObj.num) : -1;
 
-    
-    // Módosított logika: Ha van 'result' prop, azt használjuk, különben kiszámoljuk
+    // --- ELEMZÉSI IKON RENDERELÉSE ---
+    const renderMoveIcon = (move) => {
+        if (!move || !move.analysisLabel) return null;
+        const analysis = moves[move.analysisLabel];
+        
+        if (!analysis) return null;
+
+        return (
+            <img 
+                src={analysis.src} 
+                alt={analysis.label}
+                title={`${analysis.label}: ${analysis.desc}`}
+                className="w-4.5 h-4.5 ml-1.5 object-contain animate-in zoom-in duration-300" 
+            />
+        );
+    };
+
     // --- EREDMÉNY MEGHATÁROZÁSA ---
     const finalResult = (() => {
-        // Ha tart a játék, vagy még nem dőlt el, ne mutassunk semmit
         if (isOngoing || !isGameOver) return null;
-
-        // Ha a szülőtől kapunk kész eredményt, azt preferáljuk
         if (result) return result;
 
-        // Ha nincs result, de a játék véget ért, kiszámoljuk a status/reason alapján
         if (status === "aborted" || (reason && reason.toLowerCase().includes("aborted"))) {
             return { score: "½-½", winnerText: "Game Aborted", reasonText: "Too few moves" };
         }
@@ -87,7 +102,6 @@ const MoveListPanel = ({
                 : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
         }
 
-        // Alapértelmezett döntetlen, de csak ha tényleg GameOver státuszban vagyunk
         if (["draw", "stalemate"].includes(status)) {
             return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
         }
@@ -95,12 +109,37 @@ const MoveListPanel = ({
         return null;
     })();
 
+    if (isAnalyzing) {
+        return (
+            <div className="w-112.5 h-185 bg-[#262421] flex flex-col items-center justify-center border border-chess-bg rounded-xl">
+                <div className="w-12 h-12 border-4 border-[#81b64c] border-t-transparent rounded-full animate-spin mb-4"></div>
+                <div className="text-white font-bold animate-pulse">Coach is analyzing...</div>
+                <div className="text-[#8b8987] text-xs mt-2 uppercase">Depth 18</div>
+            </div>
+        );
+    }
+
+    // 2. Ha van elemzési adat, mutathatjuk az összefoglalót (Opcionális panel a tetejére)
+    const renderAccuracyHeader = () => {
+        if (!analysisData) return null;
+        return (
+            <div className="p-3 bg-[#21201d] border-b border-[#3c3a37] flex justify-around items-center">
+                <div className="text-center">
+                    <div className="text-[10px] text-[#8b8987] uppercase font-bold">Accuracy</div>
+                    <div className="text-xl font-black text-white">{analysisData.overall_accuracy}%</div>
+                </div>
+                {/* Itt lehetnek a fázisok is: Opening, Middle, End */}
+            </div>
+        );
+    };
+
     return (
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
+            {renderAccuracyHeader()}
             {/* MEGNYITÁS KIJELZŐ SZEKCIÓ */}
             <div className="p-4 border-b border-[#3c3a37] bg-[#21201d] flex flex-col justify-center min-h-[70px] transition-all duration-500">
                 {opening ? (
-                    <div>
+                    <div className="animate-in fade-in duration-500">
                         <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-[#8b8987] text-[11px] font-bold uppercase tracking-tight italic">
                                 Opening
@@ -111,7 +150,7 @@ const MoveListPanel = ({
                         </div>
                     </div>
                 ) : (
-                    <div className="text-[#636261] text-sm italic"></div>
+                    <div className="text-[#636261] text-sm italic h-full"></div>
                 )}
             </div>
 
@@ -141,35 +180,45 @@ const MoveListPanel = ({
                         return (
                             <div key={i} className={`flex h-10 items-center ${i % 2 === 0 ? 'bg-[#2b2926]' : 'bg-transparent'}`}>
                                 <div className="w-10 text-center text-[#666] text-[13px] font-semibold shrink-0">{row.moveNumber}.</div>
+                                
                                 {/* Világos lépése */}
-                                    <div 
-                                        onClick={() => goToMove(whiteIdx)} 
-                                        className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
-                                            viewIndex === whiteIdx ? 'text-white' : 'text-[#bab9b8] hover:text-white'
-                                        }`}
-                                    >
-                                        {renderNotation(row.white.m)}
-                                    </div>
+                                <div 
+                                    onClick={() => goToMove(whiteIdx)} 
+                                    className={`w-28 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
+                                        viewIndex === whiteIdx ? 'bg-[#3b3835] text-white rounded-sm' : 'text-[#bab9b8] hover:text-white'
+                                    }`}
+                                >
+                                    {renderNotation(row.white.m)}
+                                    {renderMoveIcon(row.white)}
+                                </div>
 
-                                    {/* Sötét lépése */}
-                                    <div 
-                                        onClick={() => row.black && goToMove(blackIdx)} 
-                                        className={`w-24 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
-                                            row.black && viewIndex === blackIdx ? 'text-white' : 'text-[#bab9b8] hover:text-white'
-                                        }`}
-                                    >
-                                        {row.black ? renderNotation(row.black.m) : ""}
-                                    </div>
+                                {/* Sötét lépése */}
+                                <div 
+                                    onClick={() => row.black && goToMove(blackIdx)} 
+                                    className={`w-28 h-8 flex items-center px-2 cursor-pointer font-bold text-[14px] transition-colors ${
+                                        row.black && viewIndex === blackIdx ? 'bg-[#3b3835] text-white rounded-sm' : 'text-[#bab9b8] hover:text-white'
+                                    }`}
+                                >
+                                    {row.black ? renderNotation(row.black.m) : ""}
+                                    {renderMoveIcon(row.black)}
+                                </div>
+
                                 <div className="flex-1"></div>
-                                <div className="w-16 flex flex-col justify-center pr-3 border-l border-chess-bg/30">
+
+                                {/* Idő és Eval kijelzés */}
+                                <div className="w-20 flex flex-col justify-center pr-3 border-l border-chess-bg/30">
                                     <div className="flex items-center justify-end gap-1 leading-none text-[10px] text-[#989795]">
-                                        {row.white && row.white.t !== undefined ? row.white.t.toFixed(1) : "0.0"}s
-                                        <div className="w-0.75 h-3 bg-[#bab9b8] rounded-full opacity-40"></div>
+                                        {row.white?.eval !== undefined && (
+                                            <span className="mr-1 text-[#666] font-mono">{row.white.eval > 0 ? `+${row.white.eval}` : row.white.eval}</span>
+                                        )}
+                                        {row.white?.t !== undefined ? row.white.t.toFixed(1) : "0.0"}s
                                     </div>
                                     {row.black && (
                                         <div className="flex items-center justify-end gap-1 leading-none text-[10px] text-[#666]">
+                                             {row.black.eval !== undefined && (
+                                                <span className="mr-1 text-[#444] font-mono">{row.black.eval > 0 ? `+${row.black.eval}` : row.black.eval}</span>
+                                            )}
                                             {row.black.t !== undefined ? row.black.t.toFixed(1) : "0.0"}s
-                                            <div className="w-0.75 h-3 bg-[#666] rounded-full opacity-40"></div>
                                         </div>
                                     )}
                                 </div>
@@ -177,7 +226,6 @@ const MoveListPanel = ({
                         );
                     })}
 
-                    {/* ITT HASZNÁLJUK A finalResult-ot, ami priorizálja a result propot */}
                     {showEndGameUI && finalResult && (
                         <div className="mt-4 mx-2 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                             <div className="flex items-center justify-between px-4 py-4 bg-chess-panel-header border border-chess-bg rounded-md shadow-inner">
@@ -201,7 +249,10 @@ const MoveListPanel = ({
             <div className="bg-chess-panel-header flex flex-col border-t border-[#1b1a18]">
                 {showEndGameUI && (
                     <div className="p-3 border-b border-chess-bg bg-chess-panel-header animate-in fade-in duration-300">
-                        <button onClick={() => window.location.reload()} className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg active:scale-95">
+                       <button 
+                            onClick={handleRunFullAnalysis} // <--- MOST MÁR EZT HÍVJA
+                            className="w-full py-3 bg-[#81b64c] hover:bg-[#a3d16a] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg text-lg"
+                        >
                             <i className="fas fa-microscope"></i> Game Review
                         </button>
                         <div className="grid grid-cols-2 gap-2 pt-3">
@@ -277,7 +328,6 @@ const MoveListPanel = ({
     );
 };
 
-// ... TopTab és NavBtn marad változatlan ...
 const TopTab = ({ icon, label, active, onClick }) => (
     <div onClick={onClick} className={`flex flex-col items-center py-2 px-1 flex-1 cursor-pointer transition-colors border-b-2 ${active ? 'bg-[#262421] border-[#81b64c] text-white' : 'border-transparent text-[#989795] hover:bg-[#2b2926]'}`}>
         <i className={`fas ${icon} text-lg mb-1`}></i>

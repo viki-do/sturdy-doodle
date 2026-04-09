@@ -26,7 +26,7 @@ const GameBoard = () => {
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
-        lastTimeControl, executeMove
+        lastTimeControl, executeMove,setHistory
     } = gameLogic;
     // --- ÚJ FÜGGVÉNYEK ---
     const handleSelectionColorChange = (color) => {
@@ -87,6 +87,44 @@ const getDisplayTime = (color) => {
     // a formatSeconds majd elintézi a kerekítést a kijelzőn!
     return color === 'w' ? move.wTime : move.bTime;
 };
+
+
+// GameBoard.jsx belseje
+const [analysisData, setAnalysisData] = useState(null);
+const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+const handleRunFullAnalysis = async () => {
+    if (!gameId || gameId === "null") return;
+    
+    setIsAnalyzing(true);
+    try {
+        // Meghívjuk a te új /analyze-full-game végpontodat
+        const res = await axios.post(`${API_BASE}/analyze-full-game/${gameId}`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setAnalysisData(res.data); // Itt van az accuracy és a summary
+        
+        // Frissítjük a history tömböt a kapott elemzési címkékkel
+        setHistory(prev => prev.map(h => {
+            const moveAnalysis = res.data.analysis.find(a => a.move_number === h.num);
+            if (moveAnalysis) {
+                return { 
+                    ...h, 
+                    analysisLabel: moveAnalysis.label, // pl: "blunder"
+                    eval: moveAnalysis.eval,           // pl: -1.2
+                    bestMove: moveAnalysis.best_move   // pl: "Nf3"
+                };
+            }
+            return h;
+        }));
+    } catch (err) {
+        console.error("Analysis error:", err);
+    } finally {
+        setIsAnalyzing(false);
+    }
+};
+
 
     const isGameActive = !!gameId && gameId !== "null";
     const [isStarting, setIsStarting] = useState(false);
@@ -437,6 +475,9 @@ const getDisplayTime = (color) => {
                             setIsSelectingBot(val);
                         }}
                         goToMove={goToMove}
+                        handleRunFullAnalysis={handleRunFullAnalysis} 
+                        analysisData={analysisData}
+                        isAnalyzing={isAnalyzing}
                     />
                 ) : isSelectingBot ? (
                     <BotSelectionPanel

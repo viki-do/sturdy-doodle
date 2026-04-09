@@ -42,8 +42,8 @@ class Game(Base):
     pgn = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     bot_elo = Column(Integer, default=1500)
-    bot_id = Column(String, nullable=True)     # pl. "martin", "hikaru"
-    bot_style = Column(String, default="mix")  # "támadó", "védekező", stb.
+    bot_id = Column(String, nullable=True)    
+    bot_style = Column(String, default="mix")  
     player_color = Column(String, default="white")
 
 
@@ -54,9 +54,9 @@ class Move(Base):
     move_number = Column(Integer, nullable=False)
     notation = Column(String(20), nullable=False)
     fen_before = Column(Text, nullable=False)
-    fen_after = Column(Text, nullable=True)  # Az állás a lépés megtétele után
+    fen_after = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    accuracy_label = Column(String) # brilliant, great, blunder stb.
-    evaluation = Column(Float)      # az állás értéke a lépés után
-    best_move_uci = Column(String)  # mit kellett volna lépni
-    win_chance_drop = Column(Float) # %-os esélycsökkenés
+    accuracy_label = Column(String, nullable=True) 
+    evaluation = Column(Float, nullable=True)
+    best_move_uci = Column(String, nullable=True)
+    win_chance_drop = Column(Float, nullable=True)

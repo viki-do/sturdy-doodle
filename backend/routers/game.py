@@ -50,15 +50,18 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
     if not game or not moves:
         raise HTTPException(status_code=404, detail="Game or moves not found")
 
+    # Felhasználó ELO-jának lekérése (vagy alapértelmezett 1200)
+    # Ha van a user tábládban elo, itt húzd be, most fix 1200-zal számolunk
+    player_elo = 1200 
+
     engine = get_engine()
     board = chess.Board()
     
-    # Eredmények tárolása statisztikához
     full_analysis = []
     phase_stats = {
-        "opening": {"losses": [], "counts": {}},
-        "middlegame": {"losses": [], "counts": {}},
-        "endgame": {"losses": [], "counts": {}}
+        "opening": {"losses": [], "p_befores": [], "counts": {}},
+        "middlegame": {"losses": [], "p_befores": [], "counts": {}},
+        "endgame": {"losses": [], "p_befores": [], "counts": {}}
     }
     
     prev_eval = 30 # Kezdő érték (+0.3)
@@ -68,58 +71,78 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
         if m.notation == "start":
             continue
 
-        # Fázis detektálás (bábuérték alapú)
         current_phase = coach.get_game_phase(board)
         
-        # MÉLYELEMZÉS (MultiPV=3 a Great/Miss detektáláshoz)
-        # Depth 18-at használunk a profi pontosságért
-        analysis = engine.analyse(board, chess.engine.Limit(depth=18), multipv=3)
+        # --- GYORSÍTÁS: BOOK MOVE ELLENŐRZÉS ---
+        parts = board.fen().split()
+        search_key = f"{parts[0]} {parts[1]}"
+        is_book = search_key in OPENING_BOOK
         
-        try:
-            player_move = board.parse_san(m.notation)
-        except:
-            player_move = board.parse_uci(m.notation)
+        if is_book:
+            # Ha benne van a könyvben, átugorjuk a Stockfisht
+            label = "book"
+            move_eval = prev_eval
+            loss = 0.0
+            best_move_san = m.notation
+            p_before = coach.get_win_chance(prev_eval if board.turn == chess.WHITE else -prev_eval)
+        else:
+            # MÉLYELEMZÉS (Csak ha már nem BOOK lépés)
+            analysis = engine.analyse(board, chess.engine.Limit(depth=18), multipv=3)
+            
+            try:
+                player_move = board.parse_san(m.notation)
+            except:
+                player_move = board.parse_uci(m.notation)
 
-        # Kategorizálás (Brilliant, Great, Miss, stb.)
-        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval)
-        
-        # Win Chance számítás a statisztikához
-        is_white = board.turn == chess.WHITE
-        best_eval = analysis[0]["score"].white().score(mate_score=10000)
-        
-        wc_best = coach.get_win_chance(best_eval if is_white else -best_eval)
-        wc_actual = coach.get_win_chance(move_eval if is_white else -move_eval)
-        loss = max(0, wc_best - wc_actual)
+            # Kategorizálás (ELO alapú skálázással)
+            label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, player_elo)
+            
+            is_white = board.turn == chess.WHITE
+            best_eval = analysis[0]["score"].white().score(mate_score=10000)
+            
+            # Win Chance számítások a statisztikához
+            p_before = coach.get_win_chance(prev_eval if is_white else -prev_eval)
+            wc_best = coach.get_win_chance(best_eval if is_white else -best_eval)
+            wc_actual = coach.get_win_chance(move_eval if is_white else -move_eval)
+            loss = max(0, wc_best - wc_actual)
+            best_move_san = board.san(analysis[0]["pv"][0])
 
         # Statisztikák gyűjtése
         phase_stats[current_phase]["losses"].append(loss)
+        phase_stats[current_phase]["p_befores"].append(p_before)
         phase_stats[current_phase]["counts"][label] = phase_stats[current_phase]["counts"].get(label, 0) + 1
 
-        # Lépés adatainak mentése
+        # Lépés mentése a listába
         full_analysis.append({
             "move_number": m.move_number,
             "notation": m.notation,
             "label": label,
             "eval": move_eval / 100.0 if abs(move_eval) < 5000 else f"M{int((10000-abs(move_eval))/100)}",
-            "best_move": board.san(analysis[0]["pv"][0]),
+            "best_move": best_move_san,
             "phase": current_phase
         })
 
-        # Tábla frissítése és eval mentése a következő körhöz
-        board.push(player_move)
+        # Tábla frissítése
+        try:
+            board.push_san(m.notation)
+        except:
+            board.push_uci(m.notation)
         prev_eval = move_eval
 
-    # 3. ÖSSZEGZÉS GENERÁLÁSA (The Coach's Voice)
+    # 3. ÖSSZEGZÉS GENERÁLÁSA
     summary = {}
-    total_losses = []
+    all_losses = []
+    all_p_befores = []
     
     for phase in ["opening", "middlegame", "endgame"]:
         losses = phase_stats[phase]["losses"]
+        p_befores = phase_stats[phase]["p_befores"]
         if losses:
-            acc = coach.calculate_accuracy(losses)
-            total_losses.extend(losses)
+            # Új calculate_accuracy hívás smoothing-gal
+            acc = coach.calculate_accuracy(losses, p_befores)
+            all_losses.extend(losses)
+            all_p_befores.extend(p_befores)
             
-            # Dinamikus szöveges értékelés
             rating = "Best" if acc > 97 else "Great" if acc > 90 else "Excellent" if acc > 80 else "Good" if acc > 70 else "Inaccurate"
             summary[phase] = {
                 "accuracy": acc,
@@ -127,9 +150,8 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
                 "stats": phase_stats[phase]["counts"]
             }
 
-    overall_accuracy = coach.calculate_accuracy(total_losses)
+    overall_accuracy = coach.calculate_accuracy(all_losses, all_p_befores)
 
-    # 4. VÁLASZ A FRONTENDNEK
     return {
         "game_id": game_id,
         "overall_accuracy": overall_accuracy,
