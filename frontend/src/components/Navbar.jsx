@@ -4,7 +4,7 @@ import {
     Gamepad2, 
     Puzzle, 
     GraduationCap, 
-    MoreHorizontal, 
+    Microscope,
     Search, 
     User, 
     Settings, 
@@ -17,13 +17,11 @@ const Navbar = () => {
     const location = useLocation();
     const username = localStorage.getItem('chessUsername');
 
-    // Home gomb/Logo kezelése
     const handleHomeClick = (e) => {
         e.preventDefault();
         navigate('/home');
     };
 
-    // Play gomb kezelése (marad a speciális logika)
     const handlePlayClick = (e) => {
         e.preventDefault();
         localStorage.removeItem('chessGameId');
@@ -44,7 +42,6 @@ const Navbar = () => {
 
     return (
         <aside className="w-35 lg:w-40 h-screen bg-[#262421] flex flex-col py-4 border-r border-[#3c3a37] sticky top-0 left-0 z-1000">
-            {/* Logo Szekció - Most már a /home-ra visz */}
             <div 
                 onClick={handleHomeClick} 
                 className="flex flex-col items-center gap-1 mb-8 no-underline text-white group px-2 text-center cursor-pointer"
@@ -60,8 +57,6 @@ const Navbar = () => {
             </div>
 
             <nav className="flex-1 flex flex-col gap-1 px-2">
-            
-                {/* Play menüpont a handlePlayClick logikával */}
                 <div onClick={handlePlayClick} className="cursor-pointer">
                     <NavItem 
                         to="/play" 
@@ -83,15 +78,16 @@ const Navbar = () => {
                     label="Learn" 
                     active={isActive('/learn')} 
                 />
+                
+                {/* --- A MORE HELYETT MOSTANTÓL ANALYSIS --- */}
                 <NavItem 
-                    to="/more" 
-                    icon={<MoreHorizontal size={24} />} 
-                    label="More" 
-                    active={isActive('/more')} 
+                    to="/analysis" 
+                    icon={<Microscope size={24} />} 
+                    label="Analysis" 
+                    active={isActive('/analysis')} 
                 />
             </nav>
 
-            {/* Alsó Szekció */}
             <div className="mt-auto flex flex-col gap-2 px-2 pt-4 border-t border-[#3c3a37]">
                 <button className="flex items-center gap-3 px-3 py-2 text-[#bab9b8] hover:bg-[#312e2b] hover:text-white rounded-lg transition-all cursor-pointer">
                     <Search size={20} />
@@ -99,7 +95,7 @@ const Navbar = () => {
                 </button>
 
                 <div 
-                    onClick={() => navigate(`/member/${username}`)} // Ide írd át!
+                    onClick={() => navigate(`/member/${username}`)}
                     className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${location.pathname.startsWith('/member') ? 'bg-[#312e2b] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'}`}
                 >
                     <div className="w-6 h-6 bg-[#454241] rounded flex justify-center items-center overflow-hidden">

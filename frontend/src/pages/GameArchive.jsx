@@ -14,6 +14,26 @@ const GameArchive = () => {
         { id: 3, type: '10 min', opponent: 'avizzean', elo: 510, myElo: 484, result: '0-1', accuracy: ['75.8', '81.9'], moves: 46, date: 'Apr 4, 2026', win: false, iWasWhite: true },
         { id: 4, type: '3 days', opponent: 'nickplaysc...', elo: 1013, myElo: 1171, result: '1-0', accuracy: ['56.9', '44.9'], moves: 18, date: 'Apr 4, 2026', win: true, iWasWhite: true },
         { id: 5, type: '1 day', opponent: 'sam2love', elo: 1299, myElo: 1131, result: '1-0', accuracy: ['85.4', '77.8'], moves: 34, date: 'Apr 4, 2026', win: true, iWasWhite: false },
+        { id: 6, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['80.4', '95.3'], moves: 18, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 7, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['95.9', '100'], moves: 5, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 8, type: '10 min', opponent: 'avizzean', elo: 510, myElo: 484, result: '0-1', accuracy: ['75.8', '81.9'], moves: 46, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 9, type: '3 days', opponent: 'nickplaysc...', elo: 1013, myElo: 1171, result: '1-0', accuracy: ['56.9', '44.9'], moves: 18, date: 'Apr 4, 2026', win: true, iWasWhite: true },
+        { id: 10, type: '1 day', opponent: 'sam2love', elo: 1299, myElo: 1131, result: '1-0', accuracy: ['85.4', '77.8'], moves: 34, date: 'Apr 4, 2026', win: true, iWasWhite: false },
+        { id: 11, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['80.4', '95.3'], moves: 18, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 12, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['95.9', '100'], moves: 5, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 13, type: '10 min', opponent: 'avizzean', elo: 510, myElo: 484, result: '0-1', accuracy: ['75.8', '81.9'], moves: 46, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 14, type: '3 days', opponent: 'nickplaysc...', elo: 1013, myElo: 1171, result: '1-0', accuracy: ['56.9', '44.9'], moves: 18, date: 'Apr 4, 2026', win: true, iWasWhite: true },
+        { id: 15, type: '1 day', opponent: 'sam2love', elo: 1299, myElo: 1131, result: '1-0', accuracy: ['85.4', '77.8'], moves: 34, date: 'Apr 4, 2026', win: true, iWasWhite: false },
+        { id: 16, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['80.4', '95.3'], moves: 18, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 17, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['95.9', '100'], moves: 5, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 18, type: '10 min', opponent: 'avizzean', elo: 510, myElo: 484, result: '0-1', accuracy: ['75.8', '81.9'], moves: 46, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 19, type: '3 days', opponent: 'nickplaysc...', elo: 1013, myElo: 1171, result: '1-0', accuracy: ['56.9', '44.9'], moves: 18, date: 'Apr 4, 2026', win: true, iWasWhite: true },
+        { id: 20, type: '1 day', opponent: 'sam2love', elo: 1299, myElo: 1131, result: '1-0', accuracy: ['85.4', '77.8'], moves: 34, date: 'Apr 4, 2026', win: true, iWasWhite: false },
+        { id: 21, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['80.4', '95.3'], moves: 18, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 22, type: 'bot', opponent: 'Maximum', elo: 3200, myElo: 484, result: '0-1', accuracy: ['95.9', '100'], moves: 5, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 23, type: '10 min', opponent: 'avizzean', elo: 510, myElo: 484, result: '0-1', accuracy: ['75.8', '81.9'], moves: 46, date: 'Apr 4, 2026', win: false, iWasWhite: true },
+        { id: 24, type: '3 days', opponent: 'nickplaysc...', elo: 1013, myElo: 1171, result: '1-0', accuracy: ['56.9', '44.9'], moves: 18, date: 'Apr 4, 2026', win: true, iWasWhite: true },
+        { id: 25, type: '1 day', opponent: 'sam2love', elo: 1299, myElo: 1131, result: '1-0', accuracy: ['85.4', '77.8'], moves: 34, date: 'Apr 4, 2026', win: true, iWasWhite: false },
     ];
 
     return (
@@ -22,7 +42,7 @@ const GameArchive = () => {
                 
                 {/* 1. FEJLÉC IKONNAL */}
                 <div className="flex items-center gap-3 mb-6">
-                    <img src="https://www.chess.com/bundles/web/images/color-icons/folder.svg" className="w-10 h-10" alt="archive" />
+                    <img src="/assets/logos/board-archive.svg" className="w-10 h-10" alt="archive" />
                     <h2 className="text-[26px] font-bold text-white tracking-tight">Game History (221)</h2>
                 </div>
 

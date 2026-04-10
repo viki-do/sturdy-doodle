@@ -6,7 +6,8 @@ import GameBoard from './pages/GameBoard';
 import ProfilePage from './pages/ProfilePage';
 import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
-import GameArchive from './pages/GameArchive'; // Győződj meg róla, hogy létrehoztad ezt a fájlt
+import GameArchive from './pages/GameArchive';
+import AnalyzeBoard from './components/AnalyzeBoard';
 
 const App = () => {
     const token = localStorage.getItem('chessToken');
@@ -39,6 +40,12 @@ const App = () => {
                             path="/play" 
                             element={isAuthenticated ? <GameBoard /> : <Navigate to="/login" />} 
                         />
+                        {/* 2. ÚJ ÚTVONAL AZ ELEMZÉSHEZ */}
+                        <Route 
+                            path="/analysis" 
+                            element={isAuthenticated ? <AnalyzeBoard /> : <Navigate to="/login" />} 
+                        />
+                
                         
                         {/* 1. Alap Profil oldal (10 játékos nézet + See More) */}
                         <Route 

@@ -191,44 +191,83 @@ def load_openings():
 # Ez egyszer fusson le a szerver indulásakor
 load_openings()
 
+def find_opening_by_fen(fen: str):
+    """Megnyitás keresése bárhonnan (Sandbox vagy meccs) a memóriában lévő adatokból."""
+    if not fen: return None
+    parts = fen.split()
+    if len(parts) < 2: return None
+
+    # Kulcs: pozíció és a soron következő szín
+    search_key = f"{parts[0]} {parts[1]}"
+    
+    # 1. Gyors keresés
+    opening = OPENING_BOOK.get(search_key)
+    
+    # 2. 'startswith' fallback (ha a FEN többi része eltérne)
+    if not opening:
+        for db_fen, info in OPENING_BOOK.items():
+            if db_fen.startswith(search_key):
+                opening = info
+                break
+    
+    if opening:
+        return {
+            "name": opening.get("name"),
+            "eco": opening.get("eco")
+        }
+    return None
+
 def get_opening_with_fallback(db: Session, game_id: uuid.UUID):
-    # Lekérjük a lépéseket a legújabbtól a legrégebbi felé (move_number DESC)
+    # Lekérjük a lépéseket időrendben visszafelé
     moves = db.query(models.Move).filter(
         models.Move.game_id == game_id
     ).order_by(models.Move.move_number.desc()).all()
 
     for m in moves:
-        # Csak akkor nézzük meg, ha van elmentett FEN utána
         fen_to_check = m.fen_after if m.fen_after else m.fen_before
-        if not fen_to_check:
-            continue
-            
-        parts = fen_to_check.split()
-        if len(parts) < 2:
-            continue
-
-        # Kulcs: pozíció és a soron következő szín
-        search_key = f"{parts[0]} {parts[1]}"
-        
-        # 1. Gyors keresés a szótárban
-        opening = OPENING_BOOK.get(search_key)
-        
-        # 2. Ha nincs meg, megnézzük a "startswith" módszerrel
-        if not opening:
-            for db_fen, info in OPENING_BOOK.items():
-                if db_fen.startswith(search_key):
-                    opening = info
-                    break
-        
-        # Ha találtunk nevet, azonnal visszaadjuk (ez a legfrissebb ismert elmélet)
+        # MEGHÍVJUK AZ ÚJ UNIVERZÁLIS KERESŐT
+        opening = find_opening_by_fen(fen_to_check)
         if opening:
-            return {
-                "name": opening.get("name"),
-                "eco": opening.get("eco")
-            }
+            return opening
 
     return None
+@router.post("/analyze-sandbox-move")
+def analyze_sandbox_move(data: dict):
+    fen_before = data.get("fen_before")
+    move_san = data.get("move")
+    prev_eval = data.get("prev_eval", 30)
+    
+    board = chess.Board(fen_before)
+    engine = get_engine()
+    
+    # Sandbox elemzés (depth 16)
+    analysis = engine.analyse(board, chess.engine.Limit(depth=16), multipv=3)
+    
+    try:
+        player_move = board.parse_san(move_san)
+        
+        # 1. Megnézzük mi történik a lépés után (a név miatt)
+        temp_board = board.copy()
+        temp_board.push(player_move)
+        
+        # 2. Itt hívjuk a már létező kereső függvényedet (find_opening_by_fen)
+        # Fontos: a neveknek egyezniük kell!
+        opening_data = find_opening_by_fen(temp_board.fen())
+        is_book = opening_data is not None
 
+        # 3. Osztályozás az is_book jelzővel
+        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, is_book=is_book)
+        
+        return {
+            "label": label,
+            "eval": move_eval,
+            "best_move": board.san(analysis[0]["pv"][0]),
+            "opening": opening_data
+        }
+    except Exception as e:
+        print(f"Sandbox hiba: {e}")
+        return {"label": "best", "eval": prev_eval, "best_move": "", "opening": None}
+    
 def rebuild_board(game_id: uuid.UUID, db: Session):
     # Csak a legutolsó lépést kérjük le (move_number alapján csökkenő sorrend, az első elem)
     last_move = db.query(models.Move).filter(
@@ -301,7 +340,7 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
 
         # --- BOT LÉPÉSE (HA A USER FEKETE, A BOT KEZD FEHÉRREL) ---
         if chosen_color == "black":
-            from .stockfish_utils import get_engine # Ellenőrizd az importot!
+            
             engine = get_engine()
             
             # Konfigurálás
@@ -309,7 +348,7 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
             engine.configure({"Skill Level": skill})
             
             # Időlimit meghatározása
-            t_limit = 0.1 if bot_elo < 800 else 0.5
+            t_limit = 0.1 if bot_elo < 800 else 0.8
             
             # Bot lép
             result = engine.play(board, chess.engine.Limit(time=t_limit))
@@ -831,3 +870,4 @@ def get_user_games(username: str, offset: int = 0, limit: int = 10, db: Session 
     total_count = db.query(models.Game).filter((models.Game.white_player_id == user.id) | (models.Game.black_player_id == user.id)).count()
     
     return {"games": games, "total": total_count}
+

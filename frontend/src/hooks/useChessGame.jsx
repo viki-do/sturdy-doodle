@@ -175,12 +175,25 @@ const executeMove = async (from, to, promotion = null) => {
         else playSound('move');
     }, 10);
 
-    // --- 3. BOT LÉPÉS KEZELÉSE ---
+    // --- 3. BOT LÉPÉS KEZELÉSE ÉS JÁTÉK VÉGE ---
     try {
         const res = await axios.post(`${API_BASE}/move`, 
             { game_id: gameId, move: `${from}${to}${promotion || ""}` }, 
             { headers: { Authorization: `Bearer ${token}` } }
         );
+
+        // --- ÚJ: ELLENŐRIZZÜK AZONNAL, HOGY VÉGE VAN-E (pl. Mattot adtál) ---
+        if (res.data.is_game_over) {
+            setStatus(res.data.status); // Beállítja: "checkmate", "draw", stb.
+            setReason(res.data.reason); // Beállítja a szöveget: "White wins by checkmate"
+            setActiveTimeColor(null);    // Megállítja az órát
+            
+            // Ha a botnak már nem kell lépnie (mert te mattot adtál), itt megállunk
+            if (!res.data.bot_move) {
+                localStorage.removeItem('chessGameId');
+                return; 
+            }
+        }
 
         const bot = res.data.bot_move;
         if (bot && bot.from) {
@@ -205,7 +218,6 @@ const executeMove = async (from, to, promotion = null) => {
 
                 setHistory(prev => [...prev, botMoveEntry]);
                 
-                // Óra bónusz + átadás
                 if (isBotWhite) setWhiteTime(prev => prev + increment);
                 else setBlackTime(prev => prev + increment);
 
@@ -216,8 +228,16 @@ const executeMove = async (from, to, promotion = null) => {
                 setFen(res.data.new_fen);
                 setLastMove({ from: bot.from, to: bot.to });
                 lastPlayedMoveNum.current += 1;
+                
+                // --- BOT LÉPÉSE UTÁNI JÁTÉK VÉGE ELLENŐRZÉS (Ha a bot mattolt téged) ---
                 if (res.data.status) setStatus(res.data.status);
+                if (res.data.reason) setReason(res.data.reason);
                 if (res.data.opening) setOpening(res.data.opening);
+
+                if (res.data.is_game_over) {
+                    setActiveTimeColor(null);
+                    localStorage.removeItem('chessGameId');
+                }
 
                 // Bot hangok
                 const isCheckmateStatus = res.data.status === "checkmate";

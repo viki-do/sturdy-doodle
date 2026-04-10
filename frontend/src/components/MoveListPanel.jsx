@@ -123,7 +123,7 @@ const MoveListPanel = ({
     const renderAccuracyHeader = () => {
         if (!analysisData) return null;
         return (
-            <div className="p-3 bg-[#21201d] border-b border-[#3c3a37] flex justify-around items-center">
+            <div className="p-3 bg-chess-panel-header border-b border-[#3c3a37] flex justify-around items-center">
                 <div className="text-center">
                     <div className="text-[10px] text-[#8b8987] uppercase font-bold">Accuracy</div>
                     <div className="text-xl font-black text-white">{analysisData.overall_accuracy}%</div>
@@ -137,7 +137,7 @@ const MoveListPanel = ({
         <div className="w-112.5 h-185 bg-[#262421] flex flex-col font-sans border border-chess-bg rounded-xl overflow-hidden shadow-2xl">
             {renderAccuracyHeader()}
             {/* MEGNYITÁS KIJELZŐ SZEKCIÓ */}
-            <div className="p-4 border-b border-[#3c3a37] bg-[#21201d] flex flex-col justify-center min-h-[70px] transition-all duration-500">
+            <div className="p-4 border-b border-[#3c3a37] bg-chess-panel-header flex flex-col justify-center min-h-17.5 transition-all duration-500">
                 {opening ? (
                     <div className="animate-in fade-in duration-500">
                         <div className="flex items-center gap-2 mb-0.5">
@@ -152,17 +152,6 @@ const MoveListPanel = ({
                 ) : (
                     <div className="text-[#636261] text-sm italic h-full"></div>
                 )}
-            </div>
-
-            {/* Felső Tabok */}
-            <div className="grid grid-cols-4 bg-chess-panel-header border-b border-[#1b1a18]">
-                <TopTab icon="fa-stopwatch" label={isOngoing ? "Play" : "Analysis"} active={true} />
-                <TopTab icon="fa-plus" label="New Game" onClick={() => {
-                    resetGame();
-                    setIsSelectingBot(true);
-                }} />
-                <TopTab icon="fa-th" label="Games" />
-                <TopTab icon="fa-users" label="Players" />
             </div>
 
             {/* Tartalmi rész */}
