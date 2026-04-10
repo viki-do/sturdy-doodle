@@ -1,8 +1,13 @@
 import React from 'react';
 import { Zap, Monitor, GraduationCap, Users } from 'lucide-react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 
-// Hozzáadtuk az onPlayBots propot a fejlécbe
-const PlaySelectionPanel = ({ onStartGame, onPlayBots }) => { 
+const PlaySelectionPanel = () => { 
+    const navigate = useNavigate();
+    // Itt vesszük át a GameBoard-tól a döntéshozó függvényt
+    const context = useOutletContext();
+    const handlePlayBots = context?.handlePlayBotsMenuClick;
+
     return (
         <div className="w-112.5 h-180 bg-[#262421] rounded-xl border border-chess-bg overflow-hidden flex flex-col font-sans">
             <div className="p-5 border-b border-[#1b1a18] bg-chess-panel-header flex items-center justify-center gap-3">
@@ -21,8 +26,8 @@ const PlaySelectionPanel = ({ onStartGame, onPlayBots }) => {
                     title="Play Bots"
                     desc="Challenge a bot from Easy to Master"
                     highlight={true}
-                    // JAVÍTÁS: Itt hívjuk meg az onPlayBots-ot, ami megnyitja a botválasztót
-                    onClick={onPlayBots} 
+                    // Meghívjuk a függvényt, ami eldönti: folytatás vagy lista
+                    onClick={handlePlayBots} 
                 />
                 <ModeButton 
                     icon={<GraduationCap size={28} className="text-pink-400" />}
@@ -36,7 +41,6 @@ const PlaySelectionPanel = ({ onStartGame, onPlayBots }) => {
                 />
             </div>
             
-            {/* Üres alsó rész, hogy vizuálisan lezárja a panelt, ahol a MoveList-nél a navigáció van */}
             <div className="p-4 bg-[#262421] border-t border-[#1b1a18] h-20">
                 <p className="text-[#666] text-xs text-center italic">Choose a mode to start your journey</p>
             </div>
@@ -47,7 +51,7 @@ const PlaySelectionPanel = ({ onStartGame, onPlayBots }) => {
 const ModeButton = ({ icon, title, desc, onClick, highlight }) => (
     <button 
         onClick={onClick}
-        className={`w-full flex items-center gap-4 p-4 rounded-xl transition-all border border-transparent text-left group
+        className={`w-full flex items-center gap-4 p-4 rounded-xl transition-all border border-transparent text-left group cursor-pointer
         ${highlight ? 'bg-chess-bg hover:border-white/10' : 'bg-chess-panel-header/40 hover:bg-chess-bg hover:border-white/5'}`}
     >
         <div className="shrink-0 transition-transform group-hover:scale-105">{icon}</div>

@@ -24,7 +24,8 @@ const Navbar = () => {
 
     const handlePlayClick = (e) => {
     e.preventDefault();
-    navigate('/play'); 
+    // Ha már a /play-en vagyunk, akkor is navigáljunk oda (reset trigger)
+    navigate('/play');
 };
 
     const handleLogout = () => {

@@ -1,5 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import MoveListPanel from '../components/MoveListPanel';
 import PlaySelectionPanel from '../components/PlaySelectionPanel';
@@ -11,6 +13,10 @@ import { Chess } from 'chess.js';
 import { botCategories } from '../constants/bots.js';
 const GameBoard = () => {
     const gameLogic = useChessGame();
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const [isGameActiveUI, setIsGameActiveUI] = useState(false);
     const [isSelectingBot, setIsSelectingBot] = useState(false);
     const [delayedShowPopup, setDelayedShowPopup] = useState(false);
     const [isPopupClosed, setIsPopupClosed] = useState(false);
@@ -18,6 +24,7 @@ const GameBoard = () => {
     const [selectedTime, setSelectedTime] = useState("No Timer");
     const [currentOpening, setCurrentOpening] = useState(null);
     const [opponent, setOpponent] = useState(null);
+    const [isViewingGame, setIsViewingGame] = useState(false);
     const [previewOpponent, setPreviewOpponent] = useState(null);
     const {
 
@@ -27,10 +34,55 @@ const GameBoard = () => {
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
-        lastTimeControl, executeMove,setHistory
+        lastTimeControl, executeMove,setHistory, setSpectatorMode
     } = gameLogic;
 
+
     // --- ÚJ FÜGGVÉNYEK ---
+
+   useEffect(() => {
+    if (location.pathname === '/play') {
+        setIsGameActiveUI(false);
+        setIsSelectingBot(false);
+        setIsFlipped(false);
+        
+        // Ez a legfontosabb: kényszerítjük a hookot, hogy felejtse el az élő meccset vizuálisan
+        gameLogic.setSpectatorMode(); 
+        
+        // Ha van a hook-ban resetGame (ami törli a státuszt/history-t), hívd meg:
+        if (gameLogic.status !== "ongoing") {
+            gameLogic.resetGame();
+        }
+    }
+}, [location.pathname]);
+
+
+    useEffect(() => {
+        const checkActive = async () => {
+            if (!token) return;
+            try {
+                const res = await axios.get(`${API_BASE}/get-active-game`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.data.game_id) {
+                    setGameId(res.data.game_id);
+                    // Bot adatainak megkeresése a memóriába
+                    const botElo = res.data.bot_elo;
+                    let bData = null;
+                    for (const cat of botCategories) {
+                        const found = cat.bots.find(b => b.elo === botElo);
+                        if (found) { bData = found; break; }
+                    }
+                    setOpponent(bData);
+                    // FONTOS: Nem állítjuk az isViewingGame-et true-ra! 
+                    // Így a háttérben megvan a játék, de a UI menü marad.
+                }
+            } catch (e) { console.log("Nincs aktív játék"); }
+        };
+        checkActive();
+    }, []);
+
+
 
     const handleSelectionColorChange = (color) => {
         if (color === 'random') {
@@ -93,6 +145,83 @@ const getDisplayTime = (color) => {
 const [analysisData, setAnalysisData] = useState(null);
 const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+// GameBoard.jsx - Keresd meg az initialize effectet
+
+// GameBoard.jsx - Az initialize effect frissítése
+useEffect(() => {
+    const initialize = async () => {
+        const isOnPlayRoot = location.pathname === '/play';
+        const isOnBotsPage = location.pathname.includes('/bots');
+
+        if (isOnPlayRoot) {
+            gameLogic.setSpectatorMode();
+            setIsFlipped(false); // Alaphelyzet a menüben
+        }
+
+        if (!token) return;
+
+        try {
+            const res = await axios.get(`${API_BASE}/get-active-game`, { 
+                headers: { Authorization: `Bearer ${token}` } 
+            });
+            
+            if (res.data.game_id && res.data.status === "ongoing") {
+                setGameId(res.data.game_id);
+                
+                // --- KRITIKUS JAVÍTÁS ---
+                // Megnézzük a szerver által küldött színt
+                const pColor = res.data.player_color; // 'white' vagy 'black'
+                
+                if (isOnBotsPage) {
+                    // Ha sötét vagy, megfordítjuk a táblát
+                    setIsFlipped(pColor === 'black');
+                    await fetchGameState(res.data.game_id);
+                    setIsGameActiveUI(true);
+                }
+                // ------------------------
+
+                const botElo = res.data.bot_elo;
+                let bData = null;
+                for (const cat of botCategories) {
+                    const found = cat.bots.find(b => b.elo === botElo);
+                    if (found) { bData = found; break; }
+                }
+                setOpponent(bData);
+            }
+        } catch (e) { console.log("Hiba az inicializáláskor"); }
+    };
+    
+    initialize();
+}, [token, location.pathname, API_BASE]); // Fontos: location.pathname triggereli a váltást
+
+// GameBoard.jsx - handlePlayBotsMenuClick
+const handlePlayBotsMenuClick = async () => {
+    if (gameId && opponent) {
+        try {
+            // Először kérjük le az aktív játék adatait újra a biztonság kedvéért
+            const res = await axios.get(`${API_BASE}/get-active-game`, { 
+                headers: { Authorization: `Bearer ${token}` } 
+            });
+            
+            if (res.data.player_color) {
+                setIsFlipped(res.data.player_color === 'black');
+            }
+
+            const resData = await fetchGameState(gameId);
+            if (resData) {
+                setIsGameActiveUI(true);
+                setTimeout(() => navigate('bots'), 50); 
+            }
+        } catch (err) {
+            navigate('bots');
+        }
+    } else {
+        setIsGameActiveUI(false);
+        gameLogic.resetGame();
+        navigate('bots');
+    }
+};
+
 const handleRunFullAnalysis = async () => {
     if (!gameId || gameId === "null") return;
     setIsAnalyzing(true);
@@ -126,16 +255,20 @@ const handleRunFullAnalysis = async () => {
     const [isStarting, setIsStarting] = useState(false);
    const handleBotSelect = async (bot, color, time) => {
     setIsStarting(true);
-    // Itt a 'bot' egy teljes objektum kell legyen (név, elo, id, img)
+    
+    // Elindítjuk az új játékot a backend-en
     const assignedColor = await startNewGame(bot, color, time);
+    
     if (assignedColor) {
         setOpponent(bot);
         setIsSelectingBot(false);
         setIsFlipped(assignedColor === 'black');
+        
+        // --- EZ A KULCS: ---
+        setIsGameActiveUI(true); // Megmutatjuk a MoveListPanel-t az új meccshez
     }
     setIsStarting(false);
 };
-
     useEffect(() => {
         let timer;
         if (status !== "ongoing" && status !== "" && isGameActive) {
@@ -255,27 +388,6 @@ window.addEventListener('keydown', handleKeyDown);
         }
     };
 
-    useEffect(() => {
-        const initialize = async () => {
-            if (!token) return;
-            try {
-                const res = await axios.get(`${API_BASE}/get-active-game`, { headers: { Authorization: `Bearer ${token}` } });
-                if (res.data.game_id) {
-                    setGameId(res.data.game_id);
-                    setIsFlipped(res.data.player_color === 'black');
-                    const botElo = res.data.bot_elo;
-                    let bData = null;
-                    for (const cat of botCategories) {
-                        const found = cat.bots.find(b => b.elo === botElo);
-                        if (found) { bData = found; break; }
-                    }
-                    setOpponent(bData);
-                    await fetchGameState(res.data.game_id);
-                }
-            } catch (e) { setGameId(null); }
-        };
-        initialize();
-    }, [token]);
 
     useEffect(() => {
         const handleMouseMove = (e) => {
@@ -316,38 +428,39 @@ window.addEventListener('keydown', handleKeyDown);
     return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
 
-            {/* Bal oldali kiértékelő sáv (példa helye) */}
-
+            {/* Bal oldali kiértékelő sáv */}
             <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
                 <div className="bg-white w-full h-[50%] transition-all"></div>
             </div>
+
             <div className="flex flex-col justify-center items-center h-full shrink-0">
 
                 {/* ELLENFÉL SZAKASZ (FENT) */}
-
                 <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
-                            {(isSelectingBot ? previewOpponent?.img : opponent?.img) ? (
-                                <img src={isSelectingBot ? previewOpponent.img : opponent.img} alt="" className="w-full h-full object-cover" />
+                            {/* Csak akkor mutatunk bot képet, ha aktív a játék vagy épp botot választunk */}
+                            {(isGameActiveUI ? opponent?.img : isSelectingBot ? previewOpponent?.img : null) ? (
+                                <img src={isGameActiveUI ? opponent.img : previewOpponent.img} alt="" className="w-full h-full object-cover" />
                             ) : (
                                 <i className="fas fa-robot text-[#808080] text-xl"></i>
                             )}
                         </div>
                         <div className="flex flex-col justify-center">
                             <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
-                                {(isSelectingBot ? previewOpponent?.name : opponent?.name) || 'Opponent'}
+                                {/* Kényszerített "Opponent" felirat, ha nem aktív a játék UI */}
+                                {isGameActiveUI ? opponent?.name : (isSelectingBot ? (previewOpponent?.name || 'Opponent') : 'Opponent')}
                             </span>
-                            {((isSelectingBot ? previewOpponent : opponent)) && (
+                            {(isGameActiveUI ? opponent : (isSelectingBot ? previewOpponent : null)) && (
                                 <span className="text-[#8b8987] text-[11px] font-bold">
-                                    ({isSelectingBot ? previewOpponent?.elo : opponent?.elo})
+                                    ({isGameActiveUI ? opponent?.elo : previewOpponent?.elo})
                                 </span>
                             )}
                         </div>
                     </div>
-                    {/* ELLENFÉL ÓRÁJA */}
 
-                    {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
+                    {/* ELLENFÉL ÓRÁJA - Csak aktív UI esetén mutatjuk */}
+                    {isGameActiveUI && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
                         } ${activeTimeColor === (isFlipped ? 'w' : 'b') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
@@ -364,18 +477,33 @@ window.addEventListener('keydown', handleKeyDown);
                     )}
                 </div>
 
-                {/* TÁBLA ÉS POPUPOK */}
+                {/* TÁBLA SZAKASZ */}
                 <div className="relative shrink-0 p-0 m-0">
                     <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative"
-                         style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
-                        <ChessBoardGrid
-                            gameLogic={{ ...gameLogic, isFlipped }}
-                            onMouseDown={handleMouseDown}
-                            onMouseUp={handleMouseUp}
+                        style={{ pointerEvents: isGameActiveUI ? 'auto' : 'none' }}>
+                        <ChessBoardGrid 
+                            gameLogic={
+                                // Ha a konkrét főoldalon vagyunk, kényszerítsük az alapállást,
+                                // hiába van Martin a háttérben.
+                                location.pathname === '/play' 
+                                    ? { 
+                                        ...gameLogic, 
+                                        fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 
+                                        isFlipped: false,
+                                        lastMove: { from: null, to: null },
+                                        validMoves: [],
+                                        selectedSquare: null
+                                    } 
+                                    // Amint elmozdulunk /play/bots-ra, engedjük át a valódi adatokat
+                                    : { ...gameLogic, isFlipped }
+                            } 
+                            onMouseDown={handleMouseDown} 
+                            onMouseUp={handleMouseUp} 
                         />
-                        {/* GYALOGÁTVÁLTOZÁS POPUP */}
+
+                        {/* Popuok (csak aktív játéknál relevánsak) */}
                         <AnimatePresence>
-                            {pendingPromotion && (
+                            {isGameActiveUI && pendingPromotion && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                                     className="absolute z-5000 bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
                                     style={{
@@ -392,31 +520,20 @@ window.addEventListener('keydown', handleKeyDown);
                                 </motion.div>
                             )}
                         </AnimatePresence>
-                        {/* JÁTÉK VÉGE POPUP */}
 
                         <AnimatePresence>
-                            {delayedShowPopup && (
+                            {isGameActiveUI && delayedShowPopup && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                                     className="absolute inset-0 bg-black/40 flex items-center justify-center z-9999 rounded-sm pointer-events-auto">
                                     <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl max-w-sm w-85 relative">
                                         <button onClick={handleClosePopup} className="absolute top-4 right-5 text-[#989795] hover:text-white text-xl cursor-pointer">
                                             <i className="fas fa-times"></i>
                                         </button>
-                                        <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">
-                                            {status === "checkmate" ? "Checkmate" : status === "resigned" ? "Resigned" : status === "aborted" ? "Aborted" : "Game Over"}
-                                        </h1>
-                                         <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">
-                                            {status === "resigned"
-                                                ? (isFlipped ? "White wins by resignation" : "Black wins by resignation")
-                                                : (reason || "Match finished")
-                                            }
-                                         </p>
+                                        <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">{status}</h1>
+                                        <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">{reason || "Match finished"}</p>
                                         <div className="flex flex-col gap-3">
-                                            <button onClick={() => { setDelayedShowPopup(false); gameLogic.resetGame(); setIsSelectingBot(true); setSelectedTime("No Timer"); }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg active:scale-95 cursor-pointer">
+                                            <button onClick={() => { setIsGameActiveUI(false); gameLogic.resetGame(); navigate('/play/bots'); }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg cursor-pointer">
                                                 New Game
-                                            </button>
-                                            <button onClick={handleClosePopup} className="w-full py-3 bg-transparent text-[#bab9b8] rounded-xl text-lg font-bold hover:text-white transition-colors cursor-pointer">
-                                                Game Review
                                             </button>
                                         </div>
                                     </motion.div>
@@ -425,8 +542,8 @@ window.addEventListener('keydown', handleKeyDown);
                         </AnimatePresence>
                     </div>
                 </div>
-                {/* SAJÁT SZAKASZ (LENT) */}
 
+                {/* SAJÁT SZAKASZ (LENT) */}
                 <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
@@ -436,7 +553,7 @@ window.addEventListener('keydown', handleKeyDown);
                             <span className="text-[#bab9b8] font-bold text-[14px] leading-none">You</span>
                         </div>
                     </div>
-                    {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
+                    {isGameActiveUI && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
                         } ${activeTimeColor === (isFlipped ? 'b' : 'w') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
@@ -454,46 +571,27 @@ window.addEventListener('keydown', handleKeyDown);
                 </div>
             </div>
 
-            {/* OLDALPANEL (MoveList, BotSelection, PlaySelection) */}
-
+            {/* OLDALPANEL - Outlet */}
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
-                {isGameActive ? (
-                    <MoveListPanel
-                        {...gameLogic}
-                        opening={gameLogic.opening}
-                        status={status}
-                        reason={reason}
-                        selectedTime={selectedTime}
-                        isPopupClosed={isPopupClosed}
-                        isPopupVisible={delayedShowPopup}
-                        isFlipped={isFlipped}
-                        onFlipBoard={() => setIsFlipped(!isFlipped)}
-                        setIsSelectingBot={(val) => {
-                            if (val === true) {
-                                setSelectedTime("No Timer");
-                                gameLogic.resetGame();
-                            }
-                            setIsSelectingBot(val);
-                        }}
-                        goToMove={goToMove}
-                        handleRunFullAnalysis={handleRunFullAnalysis}
-                        analysisData={analysisData}
-                        isAnalyzing={isAnalyzing}
-                    />
-                ) : isSelectingBot ? (
-                    <BotSelectionPanel
-                        onBack={() => {
-                            setSelectedTime("No Timer");
-                            setIsSelectingBot(false);
-                        }}
-                        onSelectBot={handleBotSelect}
-                        onTimeChange={handleTimeChange}
-                        onColorChange={handleSelectionColorChange}
-                        onPreviewChange={setPreviewOpponent}
-                    />
-                ) : (
-                    <PlaySelectionPanel onPlayBots={() => setIsSelectingBot(true)} />
-                )}
+                <Outlet context={{ 
+                    ...gameLogic, 
+                    isGameActiveUI, 
+                    setIsGameActiveUI, 
+                    isFlipped, 
+                    setIsFlipped,
+                    handlePlayBotsMenuClick,
+                    handleBotSelect,
+                    handleSelectionColorChange,
+                    handleTimeChange,
+                    handleRunFullAnalysis,
+                    analysisData,
+                    isPopupClosed,
+                    setIsPopupClosed,
+                    isAnalyzing,
+                    selectedTime,
+                    previewOpponent,
+                    setPreviewOpponent
+                }} />
             </div>
         </div>
     );
