@@ -16,19 +16,19 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
 
     // --- JAVÍTOTT RÉSZ: Meghatározzuk az AKTUÁLIS király helyét ---
     let activeKingSquare = null;
-    try {
-        const gameInstance = new Chess(fen);
-        const board = gameInstance.board().flat();
-        
-        // Megkeressük mindkét királyt
-        const whiteKing = board.find(p => p && p.type === 'k' && p.color === 'w')?.square;
-        const blackKing = board.find(p => p && p.type === 'k' && p.color === 'b')?.square;
+    if (isAlert) {
+        try {
+            const gameInstance = new Chess(fen);
+            const board = gameInstance.board().flat();
+            
+            const whiteKing = board.find(p => p && p.type === 'k' && p.color === 'w')?.square;
+            const blackKing = board.find(p => p && p.type === 'k' && p.color === 'b')?.square;
 
-        // Ha isFlipped, akkor mi sötéttel vagyunk, tehát a fekete király villanjon. 
-        // Különben a fehér.
-        activeKingSquare = isFlipped ? blackKing : whiteKing;
-    } catch (error) { console.warn(error); }
-
+            // Ha sötéttel vagyunk (flipped), a sötét király villogjon, ha jön az alert
+            activeKingSquare = isFlipped ? blackKing : whiteKing;
+        } catch (error) { console.warn(error); }
+    }
+    
     const fenRows = fen.split(' ')[0].split('/');
     const fullBoard = fenRows.map(r => {
         const line = [];

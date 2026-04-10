@@ -20,6 +20,7 @@ const GameBoard = () => {
     const [opponent, setOpponent] = useState(null);
     const [previewOpponent, setPreviewOpponent] = useState(null);
     const {
+
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
         token, gameId, setGameId, setFen, setLastMove, setViewIndex,
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
@@ -28,7 +29,9 @@ const GameBoard = () => {
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
         lastTimeControl, executeMove,setHistory
     } = gameLogic;
+
     // --- ÚJ FÜGGVÉNYEK ---
+
     const handleSelectionColorChange = (color) => {
         if (color === 'random') {
             setIsFlipped(false);
@@ -36,28 +39,28 @@ const GameBoard = () => {
             setIsFlipped(color === 'black');
         }
     };
+
     const handleClosePopup = () => {
         setDelayedShowPopup(false);
         setIsPopupClosed(true);
-        // Review-hoz eltüntetjük a sárga mező kiemelést
         setLastMove({ from: null, to: null });
+
     };
-    // ---------------------
+
   const formatSeconds = (totalSeconds) => {
-    // 1. Biztonsági kör: kényszerítsük számmá és ne engedjük negatívba
     const total = Math.max(0, Number(totalSeconds) || 0);
-    
     // 2. 10 másodperc ALATT: 0:09.4 formátum (tizedesekkel)
+
     if (total < 10) {
         const secs = Math.floor(total);
         const tenths = Math.floor((total * 10) % 10);
         return `0:0${secs}.${tenths}`;
     }
-    
+
     // 3. 10 másodperc FELETT: Sima MM:SS (lefelé kerekítve)
     // A Math.floor biztosítja, hogy ha 50.9 másodperced van, az 50-nek látszódjon.
     // Ez szinkronban lesz a MoveListPanel tizedeseivel.
-    const roundedTotal = Math.floor(total); 
+    const roundedTotal = Math.floor(total);
     const hours = Math.floor(roundedTotal / 3600);
     const mins = Math.floor((roundedTotal % 3600) / 60);
     const secs = roundedTotal % 60;
@@ -67,27 +70,24 @@ const GameBoard = () => {
     }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
 const getDisplayTime = (color) => {
     const config = gameLogic.parseTimeControl(lastTimeControl);
     // Kényszerítsük a baseTime-ot is pontos számra
     const baseTime = Number(config?.base) || 600;
-
     if (viewIndex === -1) {
         return color === 'w' ? whiteTime : blackTime;
     }
-
     if (viewIndex === 0 || history[viewIndex]?.m === "start") {
         return baseTime;
     }
-
     const move = history[viewIndex];
     if (!move) return baseTime;
 
-    // Itt ne kerekítsünk, csak adjuk vissza a nyers számot, 
+    // Itt ne kerekítsünk, csak adjuk vissza a nyers számot,
     // a formatSeconds majd elintézi a kerekítést a kijelzőn!
     return color === 'w' ? move.wTime : move.bTime;
 };
-
 
 // GameBoard.jsx belseje
 const [analysisData, setAnalysisData] = useState(null);
@@ -95,22 +95,19 @@ const [isAnalyzing, setIsAnalyzing] = useState(false);
 
 const handleRunFullAnalysis = async () => {
     if (!gameId || gameId === "null") return;
-    
     setIsAnalyzing(true);
     try {
         // Meghívjuk a te új /analyze-full-game végpontodat
         const res = await axios.post(`${API_BASE}/analyze-full-game/${gameId}`, {}, {
             headers: { Authorization: `Bearer ${token}` }
         });
-        
         setAnalysisData(res.data); // Itt van az accuracy és a summary
-        
         // Frissítjük a history tömböt a kapott elemzési címkékkel
         setHistory(prev => prev.map(h => {
             const moveAnalysis = res.data.analysis.find(a => a.move_number === h.num);
             if (moveAnalysis) {
-                return { 
-                    ...h, 
+                return {
+                    ...h,
                     analysisLabel: moveAnalysis.label, // pl: "blunder"
                     eval: moveAnalysis.eval,           // pl: -1.2
                     bestMove: moveAnalysis.best_move   // pl: "Nf3"
@@ -125,27 +122,20 @@ const handleRunFullAnalysis = async () => {
     }
 };
 
-
     const isGameActive = !!gameId && gameId !== "null";
     const [isStarting, setIsStarting] = useState(false);
-    const handleBotSelect = async (bot, color, time) => {
-        setIsStarting(true);
-        // A startNewGame-nek átadjuk a bot objektumot
-        const assignedColor = await startNewGame(bot, color, time);
-        if (assignedColor) {
-            // Fontos: az 'opponent' state-be a kiválasztott botot mentjük
-            setOpponent(bot);
-            setIsSelectingBot(false);
-            setIsFlipped(assignedColor === 'black');
-            // Reseteljük a preview-t a következő alkalomra
-            setPreviewOpponent(null);
-        } else {
-            // Ha nem sikerült elindítani (pl. szerver hiba miatt),
-            // ne zárjuk be a panelt, adjunk esélyt az újrapróbálkozásra
-            console.error("Game could not be started.");
-        }
-        setIsStarting(false);
-    };
+   const handleBotSelect = async (bot, color, time) => {
+    setIsStarting(true);
+    // Itt a 'bot' egy teljes objektum kell legyen (név, elo, id, img)
+    const assignedColor = await startNewGame(bot, color, time);
+    if (assignedColor) {
+        setOpponent(bot);
+        setIsSelectingBot(false);
+        setIsFlipped(assignedColor === 'black');
+    }
+    setIsStarting(false);
+};
+
     useEffect(() => {
         let timer;
         if (status !== "ongoing" && status !== "" && isGameActive) {
@@ -158,6 +148,7 @@ const handleRunFullAnalysis = async () => {
             setDelayedShowPopup(false);
             setIsPopupClosed(false);
         }
+
         return () => { if (timer) clearTimeout(timer); };
     }, [status, isGameActive, isPopupClosed]);
     const goToMove = useCallback((index, isWhiteOnly = false) => {
@@ -170,6 +161,7 @@ const handleRunFullAnalysis = async () => {
             else if (notation.includes('x')) playSound('capture');
             else playSound('move');
         };
+
         if (index === -1 || index >= history.length - 1) {
             setViewIndex(-1);
             const latest = history[history.length - 1];
@@ -180,6 +172,7 @@ const handleRunFullAnalysis = async () => {
             }
             return;
         }
+
         const move = history[index];
         if (!move) return;
         playNavSound(move.m);
@@ -197,6 +190,7 @@ const handleRunFullAnalysis = async () => {
             setViewIndex(index);
         }
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playSound]);
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -210,9 +204,10 @@ const handleRunFullAnalysis = async () => {
                 }
             }
         };
-        window.addEventListener('keydown', handleKeyDown);
+window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewIndex, history, goToMove]);
+
     const handleMouseDown = async (e, row, col) => {
         if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
         const square = getSquareName(row, col);
@@ -243,6 +238,7 @@ const handleRunFullAnalysis = async () => {
             setHoverSquare(null);
         }
     };
+
     const handleMouseUp = async (row, col) => {
         if (!isDragging) return;
         const target = getSquareName(row, col);
@@ -258,6 +254,7 @@ const handleRunFullAnalysis = async () => {
             setHoverSquare(null);
         }
     };
+
     useEffect(() => {
         const initialize = async () => {
             if (!token) return;
@@ -266,7 +263,6 @@ const handleRunFullAnalysis = async () => {
                 if (res.data.game_id) {
                     setGameId(res.data.game_id);
                     setIsFlipped(res.data.player_color === 'black');
-                    // Ha a backend visszaküldi a bot elo-t, keresd meg a botData-t:
                     const botElo = res.data.bot_elo;
                     let bData = null;
                     for (const cat of botCategories) {
@@ -280,6 +276,7 @@ const handleRunFullAnalysis = async () => {
         };
         initialize();
     }, [token]);
+
     useEffect(() => {
         const handleMouseMove = (e) => {
             if (isDragging) {
@@ -303,6 +300,7 @@ const handleRunFullAnalysis = async () => {
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]);
+
     const handleTimeChange = (time) => {
         setSelectedTime(time);
         const config = gameLogic.parseTimeControl(time);
@@ -314,15 +312,19 @@ const handleRunFullAnalysis = async () => {
             setBlackTime(600);
         }
     };
-   return (
+
+    return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
+
             {/* Bal oldali kiértékelő sáv (példa helye) */}
+
             <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
                 <div className="bg-white w-full h-[50%] transition-all"></div>
             </div>
-
             <div className="flex flex-col justify-center items-center h-full shrink-0">
+
                 {/* ELLENFÉL SZAKASZ (FENT) */}
+
                 <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
@@ -344,6 +346,7 @@ const handleRunFullAnalysis = async () => {
                         </div>
                     </div>
                     {/* ELLENFÉL ÓRÁJA */}
+
                     {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
@@ -365,13 +368,11 @@ const handleRunFullAnalysis = async () => {
                 <div className="relative shrink-0 p-0 m-0">
                     <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative"
                          style={{ pointerEvents: (status === "ongoing" && viewIndex === -1) ? 'auto' : 'none' }}>
-                        
                         <ChessBoardGrid
                             gameLogic={{ ...gameLogic, isFlipped }}
                             onMouseDown={handleMouseDown}
                             onMouseUp={handleMouseUp}
                         />
-
                         {/* GYALOGÁTVÁLTOZÁS POPUP */}
                         <AnimatePresence>
                             {pendingPromotion && (
@@ -391,8 +392,8 @@ const handleRunFullAnalysis = async () => {
                                 </motion.div>
                             )}
                         </AnimatePresence>
-
                         {/* JÁTÉK VÉGE POPUP */}
+
                         <AnimatePresence>
                             {delayedShowPopup && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -424,8 +425,8 @@ const handleRunFullAnalysis = async () => {
                         </AnimatePresence>
                     </div>
                 </div>
-
                 {/* SAJÁT SZAKASZ (LENT) */}
+
                 <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
@@ -435,7 +436,6 @@ const handleRunFullAnalysis = async () => {
                             <span className="text-[#bab9b8] font-bold text-[14px] leading-none">You</span>
                         </div>
                     </div>
-
                     {(isGameActive || isSelectingBot) && selectedTime !== "No Timer" && (
                         <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                             isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
@@ -455,6 +455,7 @@ const handleRunFullAnalysis = async () => {
             </div>
 
             {/* OLDALPANEL (MoveList, BotSelection, PlaySelection) */}
+
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
                 {isGameActive ? (
                     <MoveListPanel
@@ -475,7 +476,7 @@ const handleRunFullAnalysis = async () => {
                             setIsSelectingBot(val);
                         }}
                         goToMove={goToMove}
-                        handleRunFullAnalysis={handleRunFullAnalysis} 
+                        handleRunFullAnalysis={handleRunFullAnalysis}
                         analysisData={analysisData}
                         isAnalyzing={isAnalyzing}
                     />

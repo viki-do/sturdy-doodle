@@ -16,8 +16,6 @@ const MoveListPanel = ({
     setIsSelectingBot,
     reason,
     offerDraw,
-    userChoiceColor,    
-    difficultyChoice,    
     resetGame,
     lastTimeControl,
     result,
@@ -69,41 +67,32 @@ const MoveListPanel = ({
             return { score: "½-½", winnerText: "Game Aborted", reasonText: "Too few moves" };
         }
         
+        // MoveListPanel.jsx -> finalResult függvény belsejében
         if (reason) {
             const rLower = reason.toLowerCase();
+            
+            // Győztes meghatározása a backend szövege alapján
             if (rLower.includes("white wins")) {
                 let detail = "by Checkmate";
                 if (rLower.includes("resignation")) detail = "by Resignation";
                 if (rLower.includes("on time")) detail = "on Time";
+                if (rLower.includes("stalemate")) detail = "by Stalemate"; // Biztonság kedvéért
                 return { score: "1-0", winnerText: "White Won", reasonText: detail };
             }
+            
             if (rLower.includes("black wins")) {
                 let detail = "by Checkmate";
                 if (rLower.includes("resignation")) detail = "by Resignation";
                 if (rLower.includes("on time")) detail = "on Time";
+                if (rLower.includes("stalemate")) detail = "by Stalemate";
                 return { score: "0-1", winnerText: "Black Won", reasonText: detail };
             }
+
             if (rLower.includes("draw")) {
+                // Levágjuk a "Draw " részt, hogy csak az indok maradjon (pl. "by stalemate")
                 const reasonDetail = reason.replace(/Draw\s+/i, "");
                 return { score: "½-½", winnerText: "Draw", reasonText: reasonDetail || "by Rule" };
             }
-        }
-
-        if (status === "resigned") {
-            return isFlipped
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Resignation" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Resignation" };
-        }
-
-        if (status === "checkmate") {
-            const isWhiteLast = (movesOnly.length % 2 !== 0);
-            return isWhiteLast
-                ? { score: "1-0", winnerText: "White Won", reasonText: "by Checkmate" }
-                : { score: "0-1", winnerText: "Black Won", reasonText: "by Checkmate" };
-        }
-
-        if (["draw", "stalemate"].includes(status)) {
-            return { score: "½-½", winnerText: "Draw", reasonText: "by Rule" };
         }
 
         return null;
@@ -254,8 +243,11 @@ const MoveListPanel = ({
                             >
                                 <i className="fas fa-plus"></i> New Bot
                             </button>
-                            <button
-                                onClick={() => startNewGame(difficultyChoice, userChoiceColor, lastTimeControl)}
+                           <button
+                                onClick={() => {
+                                    const myColor = isFlipped ? 'black' : 'white';
+                                    startNewGame(null, myColor, lastTimeControl); 
+                                }}
                                 className="py-3 bg-chess-bg hover:bg-[#3d3a37] text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all text-[15px] active:scale-95"
                             >
                                 <i className="fas fa-sync-alt"></i> Rematch

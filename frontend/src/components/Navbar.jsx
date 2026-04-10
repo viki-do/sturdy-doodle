@@ -23,14 +23,9 @@ const Navbar = () => {
     };
 
     const handlePlayClick = (e) => {
-        e.preventDefault();
-        localStorage.removeItem('chessGameId');
-        if (location.pathname === '/play') {
-            window.location.reload();
-        } else {
-            navigate('/play');
-        }
-    };
+    e.preventDefault();
+    navigate('/play'); 
+};
 
     const handleLogout = () => {
         localStorage.clear();

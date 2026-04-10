@@ -428,31 +428,6 @@ def get_game_over_details(b: chess.Board):
     return models.GameStatus.ongoing, None
 
 
-# 1. SEGÉDFÜGGVÉNY - Ez teljesen külön álljon
-def get_game_over_details(b: chess.Board):
-    """Meghatározza a játék végének pontos okát és státuszát."""
-    if b.is_checkmate():
-        winner = "Black" if b.turn == chess.WHITE else "White"
-        return models.GameStatus.checkmate, f"{winner} wins by checkmate"
-    
-    if b.is_stalemate():
-        return models.GameStatus.draw, "Draw by stalemate"
-    
-    if b.is_insufficient_material():
-        return models.GameStatus.draw, "Draw by insufficient material"
-    
-    if b.can_claim_threefold_repetition() or b.is_fivefold_repetition():
-        return models.GameStatus.draw, "Draw by repetition"
-    
-    if b.can_claim_fifty_moves() or b.is_seventyfive_moves():
-        return models.GameStatus.draw, "Draw by 50-move rule"
-
-    if b.is_game_over():
-        return models.GameStatus.draw, "Draw"
-
-    return models.GameStatus.ongoing, None
-
-
 # 2. A MOVE VÉGPONT - Ez következzen utána
 @router.post("/move")
 def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
