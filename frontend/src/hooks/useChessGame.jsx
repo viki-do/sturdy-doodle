@@ -400,9 +400,16 @@ useEffect(() => {
     setBlackTime(600);
 }, [lastTimeControl, parseTimeControl]);
 
+const setSpectatorMode = useCallback(() => {
+    setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    setLastMove({ from: null, to: null });
+    setHistory([]);
+    setActiveTimeColor(null);
+    setStatus(""); 
+    setReason("");
+    setGameId(null);
+}, []);
 
-
-// useChessGame.jsx belsejében a startNewGame:
 
 const startNewGame = useCallback(async (bot, color = 'white', timeControl) => {
     // 1. BOT ADATOK VALIDÁLÁSA ÉS MENTÉSE (Utolsó bot megjegyzése)
@@ -629,5 +636,5 @@ const offerDraw = async () => {
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset,
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
-        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime, activeTimeColor,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl, opening, setOpening   };
+        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime, activeTimeColor,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl, opening, setOpening, setSpectatorMode};
 };
