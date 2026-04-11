@@ -23,7 +23,41 @@ const MoveListPanel = ({
     handleRunFullAnalysis,
     analysisData,
     isAnalyzing
+    
 }) => {
+
+   const handleDownloadTable = () => {
+    if (!history || history.length <= 1) return;
+
+    // Táblázat fejléce - Új oszlopok: W Eval Label, B Eval Label
+    let csvContent = "Move,White Notation,White Eval,W Label,White Time,Black Notation,Black Eval,B Label,Black Time\n";
+
+    rows.forEach(row => {
+        // Világos adatai
+        const wM = row.white ? row.white.m : "";
+        const wE = row.white && row.white.eval !== undefined ? (row.white.eval > 0 ? `+${row.white.eval}` : row.white.eval) : "";
+        const wL = row.white?.analysisLabel ? row.white.analysisLabel.toUpperCase() : "GOOD"; // Ha nincs label, alapértelmezetten 'Good'
+        const wT = row.white && row.white.t !== undefined ? row.white.t : "0.0";
+        
+        // Sötét adatai
+        const bM = row.black ? row.black.m : "";
+        const bE = row.black && row.black.eval !== undefined ? (row.black.eval > 0 ? `+${row.black.eval}` : row.black.eval) : "";
+        const bL = row.black?.analysisLabel ? row.black.analysisLabel.toUpperCase() : (row.black ? "GOOD" : "");
+        const bT = row.black && row.black.t !== undefined ? row.black.t : "0.0";
+
+        // Sor összeállítása
+        csvContent += `${row.moveNumber},${wM},${wE},${wL},${wT}s,${bM},${bE},${bL},${bT}s\n`;
+    });
+
+    // Letöltés indítása
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `chess_analysis_${new Date().getTime()}.csv`);
+    link.click();
+};
+
     const isOngoing = status === "ongoing";
     const isGameOver = ["resigned", "checkmate", "draw", "stalemate", "aborted", "finished"].includes(status);
     const showEndGameUI = isGameOver && isPopupClosed && !isPopupVisible;
@@ -295,7 +329,11 @@ const MoveListPanel = ({
                     ) : (
                         <div className="flex gap-6 items-center w-full justify-center text-[#bab9b8]">
                             <i className="fas fa-share-alt hover:text-white cursor-pointer transition-colors text-lg"></i>
-                            <i className="fas fa-download hover:text-white cursor-pointer transition-colors text-lg"></i>
+                            <i 
+                                onClick={handleDownloadTable} 
+                                className="fas fa-download hover:text-white cursor-pointer transition-colors text-lg"
+                                title="Download Spreadsheet"
+                            ></i>
                             <i className="fas fa-cog hover:text-white cursor-pointer transition-colors text-lg"></i>
                             <i onClick={onFlipBoard} className={`fas fa-sync-alt hover:text-white cursor-pointer transition-all text-lg ${isFlipped ? 'rotate-180 text-[#81b64c]' : ''}`} title="Flip Board"></i>
                         </div>
