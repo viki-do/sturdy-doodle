@@ -2,9 +2,6 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ChessBoardGrid from '../components/ChessBoardGrid';
-import MoveListPanel from '../components/MoveListPanel';
-import PlaySelectionPanel from '../components/PlaySelectionPanel';
-import BotSelectionPanel from '../components/BotSelectionPanel';
 import { useChessGame } from '../hooks/useChessGame.jsx';
 import ClockIcon from '../components/ClockIcon';
 import axios from 'axios';
@@ -34,12 +31,12 @@ const GameBoard = () => {
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
-        lastTimeControl, executeMove, setHistory, setSpectatorMode
+        lastTimeControl, executeMove, setHistory, setSpectatorMode, handleMouseDown, handleMouseUp
     } = gameLogic;
 
     // --- ÚJ FÜGGVÉNYEK ---
 
-      const getInitialTimeDisplay = (timeStr) => {
+    const getInitialTimeDisplay = (timeStr) => {
             const config = gameLogic.parseTimeControl(timeStr);
             return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
         };
@@ -51,7 +48,7 @@ const GameBoard = () => {
             setIsSelectingBot(false);
             setIsFlipped(false);
             setPreviewOpponent(null);
-            gameLogic.setSpectatorMode();
+            setSpectatorMode();
             if (gameLogic.status !== "ongoing") {
                 gameLogic.resetGame();
             }
@@ -312,76 +309,52 @@ const GameBoard = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewIndex, history, goToMove]);
 
-    const handleMouseDown = async (e, row, col) => {
-        if (status !== "ongoing" || viewIndex !== -1 || !gameId || gameId === "null") return;
-        const square = getSquareName(row, col);
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
-        setMousePos({ x: e.clientX, y: e.clientY });
-        const chess = new Chess(fen);
-        const piece = chess.get(square);
-        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            await executeMove(selectedSquare, square);
-            return;
-        }
-        const myColor = isFlipped ? 'b' : 'w';
-        if (piece && piece.color === myColor) {
-            setIsDragging(true);
-            setHoverSquare(square);
-            setSelectedSquare(square);
-            try {
-                const res = await axios.post(`${API_BASE}/get-valid-moves`,
-                    { game_id: gameId, square: square },
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
-                setValidMoves(res.data.valid_moves || []);
-            } catch (err) { setValidMoves([]); }
-        } else {
-            setSelectedSquare(null);
-            setValidMoves([]);
-            setHoverSquare(null);
-        }
-    };
-
-    const handleMouseUp = async (row, col) => {
-        if (!isDragging) return;
-        const target = getSquareName(row, col);
-        setIsDragging(false);
-        if (target === selectedSquare) { setHoverSquare(null); return; }
-        if (validMoves.includes(target)) { await executeMove(selectedSquare, target); }
-        else {
-            playSound('illegal');
-            setIsAlert(true);
-            setTimeout(() => setIsAlert(false), 400);
-            setSelectedSquare(null);
-            setValidMoves([]);
-            setHoverSquare(null);
-        }
-    };
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (isDragging) {
-                setMousePos({ x: e.clientX, y: e.clientY });
-                const board = document.getElementById('chess-board')?.getBoundingClientRect();
-                if (board) {
-                    let col = Math.floor((e.clientX - board.left) / (board.width / 8));
-                    let row = Math.floor((e.clientY - board.top) / (board.height / 8));
-                    if (isFlipped) {
-                        col = 7 - col;
-                        row = 7 - row;
-                    }
-                    if (col >= 0 && col < 8 && row >= 0 && row < 8) {
-                        setHoverSquare(getSquareName(row, col));
-                    } else {
-                        setHoverSquare(null);
-                    }
+    const handleMove = (e) => {
+       if (isDragging) {
+        // Ha érintés történik, meg kell akadályozni az oldal görgetését!
+        if (e.type === 'touchmove' && e.cancelable) {
+            e.preventDefault(); 
+        }
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        // AZONNALI frissítés
+        setMousePos({ x: clientX, y: clientY });
+
+            // 2. Tábla pozíciójának lekérése
+            const board = document.getElementById('chess-board')?.getBoundingClientRect();
+            if (board) {
+                let col = Math.floor((clientX - board.left) / (board.width / 8));
+                let row = Math.floor((clientY - board.top) / (board.height / 8));
+
+                // Fordított tábla kezelése
+                if (isFlipped) {
+                    col = 7 - col;
+                    row = 7 - row;
+                }
+
+                // 3. Ha a táblán belül vagyunk, frissítjük, melyik mező felett állunk
+                if (col >= 0 && col < 8 && row >= 0 && row < 8) {
+                    const currentSq = getSquareName(row, col);
+                    setHoverSquare(currentSq);
+                } else {
+                    setHoverSquare(null);
                 }
             }
-        };
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]);
+        }
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('touchmove', handleMove, { passive: false });
+
+    return () => {
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('touchmove', handleMove);
+    };
+}, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]);
 
     const handleTimeChange = (time) => {
         setSelectedTime(time);

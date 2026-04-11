@@ -10,8 +10,6 @@ const AnalyzeBoard = () => {
     const gameLogic = useChessGame();
     const [isFlipped, setIsFlipped] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    
-    // --- ÚJ ÁLLAPOT A PROMOTION KEZELÉSÉHEZ (A GameBoard-ból) ---
     const [pendingPromotion, setPendingPromotion] = useState(null);
 
     const {
@@ -22,7 +20,6 @@ const AnalyzeBoard = () => {
         setIsDragging, setHoverSquare, hoverSquare, lastMove
     } = gameLogic;
 
-    // --- 1. PRECIZ HANG LOGIKA ---
     const playNavSound = useCallback((notation) => {
         if (!notation || notation === "start") return;
         if (notation.includes('#')) playSound('checkmate');
@@ -33,11 +30,9 @@ const AnalyzeBoard = () => {
         else playSound('move');
     }, [playSound]);
 
-    // --- 2. GO TO MOVE (Navigáció) ---
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
-        setPendingPromotion(null); // Bezárjuk a popupot, ha navigálunk
-
+        setPendingPromotion(null);
         if (index === -1 || index >= history.length - 1) {
             setViewIndex(-1);
             const latest = history[history.length - 1];
@@ -56,13 +51,11 @@ const AnalyzeBoard = () => {
         setViewIndex(index);
     }, [history, setFen, setLastMove, setViewIndex, setSelectedSquare, playNavSound]);
 
-    // --- 3. JAVÍTOTT ELEMZŐ LÉPÉS (Promotion támogatással) ---
     const executeAnalysisMove = async (from, to, promotion = null) => {
         const chess = new Chess(fen);
         const fenBefore = fen;
         const piece = chess.get(from);
 
-        // --- PROMOTION ELLENŐRZÉS (Golyóálló logika) ---
         if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
             setPendingPromotion({ from, to });
             setIsDragging(false);
@@ -70,8 +63,6 @@ const AnalyzeBoard = () => {
         }
 
         const prevEval = history.length > 0 ? (history[history.length - 1].rawEval || 30) : 30;
-
-        // Ha nincs megadva promotion, alapértelmezetten 'q' (de csak ha a fenti check nem indult be)
         const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
         if (!moveAttempt) return;
 
@@ -82,9 +73,8 @@ const AnalyzeBoard = () => {
         setValidMoves([]);
         setIsDragging(false);
         setHoverSquare(null);
-        setPendingPromotion(null); // Bezárjuk a popupot sikeres lépés után
+        setPendingPromotion(null);
 
-        // --- HANGOK KEZELÉSE ---
         setTimeout(() => {
             if (chess.isCheckmate()) playSound('checkmate');
             else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
@@ -114,24 +104,27 @@ const AnalyzeBoard = () => {
         }
     };
 
-    // --- 4. EGÉR KEZELÉS ---
-    const handleMouseDown = async (e, row, col) => {
-        // Ha promotion popup nyitva van, vagy nem -1 az index, blokkolunk
+    // --- JAVÍTOTT handleMouseDown (Touch támogatással és azonnali Drag-gel) ---
+    const handleMouseDown = (e, row, col) => {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
         if (viewIndex !== -1 || pendingPromotion) return;
 
         const square = getSquareName(row, col);
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({ x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) });
-        setMousePos({ x: e.clientX, y: e.clientY });
-
         const chess = new Chess(fen);
         const piece = chess.get(square);
 
         if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            await executeAnalysisMove(selectedSquare, square);
+            executeAnalysisMove(selectedSquare, square);
             return;
         }
+
         if (piece && piece.color === chess.turn()) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDragOffset({ x: clientX - (rect.left + rect.width / 2), y: clientY - (rect.top + rect.height / 2) });
+            setMousePos({ x: clientX, y: clientY });
+            
             setIsDragging(true);
             setHoverSquare(square);
             setSelectedSquare(square);
@@ -143,47 +136,78 @@ const AnalyzeBoard = () => {
         }
     };
 
-    const handleMouseUp = async (row, col) => {
-        if (!isDragging) return;
-        const target = getSquareName(row, col);
-        setIsDragging(false);
-        if (target === selectedSquare) { setHoverSquare(null); return; }
+    // --- JAVÍTOTT handleMouseUp (Paraméter nélkül, hoverSquare alapú) ---
+    const handleMouseUp = async () => {
+        if (!isDragging || !selectedSquare) return;
 
-        if (validMoves.includes(target)) {
-            await executeAnalysisMove(selectedSquare, target);
+        const from = selectedSquare;
+        const target = hoverSquare;
+        
+        setIsDragging(false);
+
+        if (!target || target === from) {
+            setHoverSquare(null);
+            return;
+        }
+
+        const chess = new Chess(fen);
+        const moves = chess.moves({ square: from, verbose: true });
+        const isValidMove = moves.some(m => m.to === target);
+
+        if (isValidMove) {
+            await executeAnalysisMove(from, target);
         } else {
             playSound('illegal');
-            setSelectedSquare(null);
-            setValidMoves([]);
-            setHoverSquare(null);
         }
+        setHoverSquare(null);
     };
 
-    // --- 5. AUTOMATIKUS MOUSEMOVE FIGYELÉS ---
+    // --- JAVÍTOTT handleMove (Mouse + Touch szinkron, preventDefault) ---
     useEffect(() => {
-        const handleMouseMove = (e) => {
+        const handleMove = (e) => {
             if (isDragging) {
-                setMousePos({ x: e.clientX, y: e.clientY });
+                if (e.type === 'touchmove' && e.cancelable) e.preventDefault();
+                
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                setMousePos({ x: clientX, y: clientY });
                 const board = document.getElementById('chess-board')?.getBoundingClientRect();
                 if (board) {
-                    let col = Math.floor((e.clientX - board.left) / (board.width / 8));
-                    let row = Math.floor((e.clientY - board.top) / (board.height / 8));
+                    let col = Math.floor((clientX - board.left) / (board.width / 8));
+                    let row = Math.floor((clientY - board.top) / (board.height / 8));
                     if (isFlipped) { col = 7 - col; row = 7 - row; }
-                    if (col >= 0 && col < 8 && row >= 0 && row < 8) setHoverSquare(getSquareName(row, col));
-                    else setHoverSquare(null);
+                    if (col >= 0 && col < 8 && row >= 0 && row < 8) {
+                        setHoverSquare(getSquareName(row, col));
+                    } else {
+                        setHoverSquare(null);
+                    }
                 }
             }
         };
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, [isDragging, getSquareName, setMousePos, setHoverSquare, isFlipped]);
 
-    // Billentyűzet nyilak
+        const handleGlobalUp = () => {
+            if (isDragging) handleMouseUp();
+        };
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('mouseup', handleGlobalUp);
+        window.addEventListener('touchend', handleGlobalUp);
+
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('mouseup', handleGlobalUp);
+            window.removeEventListener('touchend', handleGlobalUp);
+        };
+    }, [isDragging, isFlipped, getSquareName, setMousePos, setHoverSquare, handleMouseUp]);
+
+    // Billentyűzet
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (pendingPromotion) return; // Blokkolunk, ha nyitva a popup
-
+            if (pendingPromotion) return;
             const currentIdx = viewIndex === -1 ? history.length - 1 : viewIndex;
             if (e.key === 'ArrowLeft' && currentIdx >= 0) goToMove(currentIdx - 1);
             else if (e.key === 'ArrowRight' && viewIndex !== -1) goToMove(currentIdx + 1);
@@ -194,7 +218,6 @@ const AnalyzeBoard = () => {
 
     return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
-            {/* Eval Bar */}
             <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-white/5 shrink-0 overflow-hidden rounded-sm">
                 <div className="bg-white w-full transition-all duration-500" style={{ height: '50%' }}></div>
             </div>
@@ -212,22 +235,18 @@ const AnalyzeBoard = () => {
                             onMouseUp={handleMouseUp} 
                         />
                         
-                        {/* --- JAVÍTOTT PROMOTION POPUP (GameBoard stílus és elhelyezés) --- */}
                         <AnimatePresence>
                             {pendingPromotion && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                                     className="absolute z-5000 bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
                                     style={{
-                                        // Vízszintes elhelyezés (a célmező oszlopa alapján)
                                         left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`,
-                                        // Függőleges elhelyezés (melyik sorba érkezett)
                                         top: ((!isFlipped && pendingPromotion.to.endsWith('8')) || (isFlipped && pendingPromotion.to.endsWith('1'))) ? '0' : 'auto',
                                         bottom: ((!isFlipped && pendingPromotion.to.endsWith('1')) || (isFlipped && pendingPromotion.to.endsWith('8'))) ? '0' : 'auto',
                                         width: '12.5%'
                                     }}>
                                     {['q', 'n', 'r', 'b'].map((type) => (
                                         <button key={type} onClick={() => executeAnalysisMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
-                                            {/* A bábu színe a fen-ben lévő chess.turn()-től függ, de analízisnél egyszerűbb a célmező alapján eldönteni */}
                                             <img src={`/assets/pieces/${pendingPromotion.to.endsWith('8') ? 'white' : 'black'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
                                         </button>
                                     ))}

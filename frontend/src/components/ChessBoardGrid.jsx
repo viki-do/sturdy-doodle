@@ -11,7 +11,7 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     const {
         fen, selectedSquare, lastMove, validMoves, isDragging,
         hoverSquare, mousePos, isAlert, status,
-        viewIndex, getSquareName, isFlipped 
+        viewIndex, getSquareName, isFlipped, handleMouseUp
     } = gameLogic;
 
     // --- JAVÍTOTT RÉSZ: Meghatározzuk az AKTUÁLIS király helyét ---
@@ -76,15 +76,41 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
             boardCells.push(
                 <div
                     key={sqName}
+                    // Egér események
                     onMouseDown={(e) => onMouseDown(e, i, j)}
-                    onMouseUp={() => onMouseUp(i, j)}
+                    onMouseUp={() => handleMouseUp()} 
+                    
+                    // JAVÍTOTT érintőképernyő kezelés
+                    onTouchStart={(e) => {
+                        // Megállítjuk a görgetést/kijelölést, hogy a touchmove azonnal tüzeljen
+                        if (e.cancelable) e.preventDefault(); 
+                        onMouseDown(e, i, j);
+                    }}
+                    // Az onTouchMove-ot a Window szintjén figyeled a GameBoardban, 
+                    // de itt le kell tiltanunk a cella alapértelmezett reakcióját
+                    onTouchMove={(e) => {
+                        if (e.cancelable) e.preventDefault();
+                    }}
+                    onTouchEnd={(e) => {
+                        // Megakadályozzuk a "szellem-kattintást" (mouseup kiváltását touchend után)
+                        if (e.cancelable) e.preventDefault();
+                        handleMouseUp();
+                    }}
+                    
                     className={`w-21.25 h-21.25 flex justify-center items-center relative select-none transition-colors duration-150 ${currentBgColor} ${piece && status === "ongoing" && viewIndex === -1 ? 'cursor-grab' : 'cursor-default'}`}
+                    
                     style={{
                         outlineWidth: '3px',
                         outlineStyle: isHoverActive ? 'solid' : 'none',
                         outlineColor: hoverOutlineColor,
                         outlineOffset: '-3px',
-                        zIndex: sqName === hoverSquare ? 30 : 1
+                        zIndex: sqName === hoverSquare ? 30 : 1,
+                        
+                        // Ezek a stílusok mondják meg a laptop hardverének, hogy NE nyúljon bele
+                        touchAction: 'none', 
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
                     }}
                 >
                     {/* SZÁMOK - Változatlanul hagyva */}
@@ -145,22 +171,28 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         key="dragging-piece"
                         src={`/assets/pieces/${piecesMap[draggedPieceData.piece]}.png`}
                         draggable="false"
+                        // Fontos: a pointer-events-none megakadályozza, hogy a bábu "elfogja" az egeret saját maga elől
+                        className="pointer-events-none fixed" 
                         style={{
-                            position: 'fixed',
-                            left: mousePos.x,
-                            top: mousePos.y,
-                            width: '78px',
-                            height: '78px',
-                            x: '-50%',
-                            y: '-50%',
-                            pointerEvents: 'none',
+                            // Csak a fix stílusok maradjanak itt
+                            width: '80px',
+                            height: '80px',
                             zIndex: 99999,
-                            filter: 'drop-shadow(0px 10px 20px rgba(0,0,0,0.4))'
+                            filter: 'drop-shadow(0px 10px 20px rgba(0,0,0,0.4))',
+                            // Ezek biztosítják, hogy pontosan az ujjad/kurzorod alatt legyen a közepe
+                            left: 0,
+                            top: 0,
                         }}
+                        // Itt jön a lényeg: az x és y koordinátákat az animate-be tesszük
                         initial={false}
-                        animate={{ scale: 1.1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.1 }}
+                        animate={{ 
+                            x: mousePos.x - 40, // A szélesség fele (80/2)
+                            y: mousePos.y - 40, // A magasság fele (80/2)
+                            scale: 1.1 
+                        }}
+                        // A transition: 0 biztosítja, hogy ne "ússzon" a kurzor után, hanem azonnal ott legyen
+                        transition={{ type: "tween", ease: "linear", duration: 0 }}
+                        exit={{ opacity: 0, scale: 1 }}
                     />
                 )}
             </AnimatePresence>
