@@ -17,7 +17,6 @@ const GameBoard = () => {
     const [isSelectingBot, setIsSelectingBot] = useState(false);
     const [delayedShowPopup, setDelayedShowPopup] = useState(false);
     const [isPopupClosed, setIsPopupClosed] = useState(false);
-    const [isFlipped, setIsFlipped] = useState(false);
     const [selectedTime, setSelectedTime] = useState("No Timer");
     const [currentOpening, setCurrentOpening] = useState(null);
     const [opponent, setOpponent] = useState(null);
@@ -26,7 +25,7 @@ const GameBoard = () => {
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
-        token, gameId, setGameId, setFen, setLastMove, setViewIndex,
+        token, gameId, setGameId, setFen, setLastMove, setViewIndex, isFlipped, setIsFlipped,
         getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,

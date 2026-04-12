@@ -249,7 +249,7 @@ export const useChessGame = () => {
         setIsFlipped(color === 'black');
         return color === 'black' ? 'black' : 'white';
     }
-}, [token, API_BASE, playSound, fetchGameState, parseTimeControl, lastTimeControl, lastBotRef, setIsFlipped]); // setIsFlipped hozzáadva a függőségekhez
+}, [token, API_BASE, playSound, fetchGameState, parseTimeControl, lastTimeControl, lastBotRef, setIsFlipped]); 
 
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
@@ -623,5 +623,7 @@ const handleMouseDown = (e, row, col) => {
         viewIndex, setViewIndex, isAlert, setIsAlert, mousePos, setMousePos, dragOffset, setDragOffset,
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
-        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime, activeTimeColor,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl, opening, setOpening, setSpectatorMode };
+        goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime,
+        activeTimeColor, isFlipped, setIsFlipped,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl,
+        opening, setOpening, setSpectatorMode };
 };
