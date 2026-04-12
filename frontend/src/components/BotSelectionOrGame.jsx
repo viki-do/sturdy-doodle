@@ -31,7 +31,6 @@ const BotSelectionOrGame = () => {
 
     /**
      * 1. LÉPÉS: Várakozás
-     * Ha a hook (useChessGame) még dolgozik, nem döntünk el semmit.
      */
     if (isLoading) {
         console.log("PANEL: Még töltünk, üres képernyő.");
@@ -40,11 +39,11 @@ const BotSelectionOrGame = () => {
 
     /**
      * 2. LÉPÉS: A döntés
-     * Ha van érvényes gameId és a játék folyamatban van, mehet a MoveList.
-     * Az F5 után itt dől el, hogy visszakapod-e a játékot.
+     * JAVÍTÁS: Ha van bármilyen érvényes gameId, akkor a MoveListPanel-t mutatjuk.
+     * Ez lehetővé teszi, hogy megnézd a lépéseket akkor is, ha a meccs "aborted" lett.
      */
-    if (gameId && (status === "ongoing" || status === "checkmate" || status === "resigned")) {
-        console.log("PANEL: Játék észlelve, MoveListPanel megjelenítése.");
+    if (gameId && gameId !== "null") {
+        console.log(`PANEL: Játék észlelve (${status}), MoveListPanel megjelenítése.`);
         return (
             <MoveListPanel 
                 {...context} 
@@ -55,7 +54,7 @@ const BotSelectionOrGame = () => {
 
     /**
      * 3. LÉPÉS: Alapértelmezett állapot
-     * Ha nincs játék, akkor a választó panelt mutatjuk.
+     * Ha nincs gameId (null), akkor visszatérünk a választóhoz.
      */
     console.log("PANEL: Nincs aktív játék, BotSelectionPanel megjelenítése.");
     return (
@@ -65,7 +64,6 @@ const BotSelectionOrGame = () => {
             onTimeChange={handleTimeChange}
             onColorChange={handleSelectionColorChange}
             onPreviewChange={setPreviewOpponent}
-            
         />
     );
 };

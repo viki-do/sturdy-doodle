@@ -9,10 +9,11 @@ import { Chess } from 'chess.js';
 import { botCategories } from '../constants/bots.js';
 
 const GameBoard = () => {
-    const gameLogic = useChessGame();
-    const navigate = useNavigate();
-    const location = useLocation();
+    
 
+    // --- 1. MINDEN STATE DEKLARÁCIÓ AZ ELEJÉRE ---
+
+    const [isStarting, setIsStarting] = useState(false);
     const [isGameActiveUI, setIsGameActiveUI] = useState(false);
     const [isSelectingBot, setIsSelectingBot] = useState(false);
     const [delayedShowPopup, setDelayedShowPopup] = useState(false);
@@ -23,6 +24,16 @@ const GameBoard = () => {
     const [isViewingGame, setIsViewingGame] = useState(false);
     const [previewOpponent, setPreviewOpponent] = useState(null);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [analysisData, setAnalysisData] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [userName, setUserName] = useState("You");
+
+
+    // --- 2. HOOK ÉS NAVIGÁCIÓ ---
+
+    const gameLogic = useChessGame();
+    const navigate = useNavigate();
+    const location = useLocation();
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
@@ -31,33 +42,37 @@ const GameBoard = () => {
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
-        lastTimeControl, executeMove, setHistory, setSpectatorMode, handleMouseDown, handleMouseUp
+        lastTimeControl, executeMove, setHistory, setSpectatorMode, handleMouseDown, handleMouseUp, 
     } = gameLogic;
 
     // --- ÚJ FÜGGVÉNYEK ---
 
     const getInitialTimeDisplay = (timeStr) => {
-            const config = gameLogic.parseTimeControl(timeStr);
-            return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
+        const config = gameLogic.parseTimeControl(timeStr);
+        return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
     };
 
-  useEffect(() => {
-    initializeGame();
-}, [initializeGame]);
+    useEffect(() => {
+    // Bejelentkezéskor elmentett név lekérése
+    const storedName = localStorage.getItem('chessUsername'); 
+    if (storedName) {
+        setUserName(storedName);
+    }
+    }, []);
 
-// GameBoard.jsx - Az összes UI és Reset logika egyben
-useEffect(() => {
+    useEffect(() => {
+    initializeGame();
+    }, [initializeGame]);
+
+// GameBoard.jsx - Az összes UI és Reset logika egyben (JAVÍTOTT)
+    useEffect(() => {
     const handleStateSync = async () => {
-        // 1. Amíg töltünk, ne nyúljunk semmihez
         if (gameLogic.isLoading) return;
 
-        console.log("SZINKRON: Betöltés kész. JátékID:", gameLogic.gameId);
-
-        // 2. HA VAN JÁTÉK: Feloldjuk a UI-t és szinkronizálunk
-        if (gameLogic.gameId) {
+        // 1. HA VAN ÉLŐ JÁTÉK: UI aktiválása és adatok betöltése
+        if (gameLogic.gameId && gameLogic.status === "ongoing") {
             setIsGameActiveUI(true);
 
-            // Csak akkor kérdezzük le, ha még nincs ellenfél (F5 után)
             if (!opponent) {
                 try {
                     const res = await axios.get(`${API_BASE}/get-active-game`, {
@@ -77,21 +92,25 @@ useEffect(() => {
                 } catch (e) { console.error("Hiba az ellenfél pótlásakor"); }
             }
         } 
-        // 3. HA NINCS JÁTÉK ÉS A FŐOLDALON VAGYUNK: Takarítás
-        else if (location.pathname === '/play') {
+        /**
+         * 2. TAKARÍTÁS (Főmenüben)
+         * CSAK AKKOR takarítunk, ha a /play oldalon vagyunk, 
+         * NINCS aktív játék, ÉS nem éppen most indítunk egy újat (isStarting)!
+         */
+        else if (location.pathname === '/play' && !isStarting) {
             setIsGameActiveUI(false);
             setOpponent(null);
-            // Csak akkor reseteljünk mindent, ha tényleg nincs miért maradni
-            if (gameLogic.status !== "ongoing") {
+            setPreviewOpponent(null);
+
+            if (gameLogic.gameId && gameLogic.status !== "ongoing") {
                 gameLogic.resetGame();
             }
         }
     };
 
     handleStateSync();
-// Figyeljük a legfontosabb változókat
-}, [gameLogic.isLoading, gameLogic.gameId, location.pathname]);
-  
+    // Hozzáadtuk az isStarting-ot a függőségi listához is!
+    }, [gameLogic.isLoading, gameLogic.gameId, gameLogic.status, location.pathname, isStarting]);
 
     const handleSelectionColorChange = (color) => {
         if (color === 'random') {
@@ -138,13 +157,8 @@ useEffect(() => {
         return color === 'w' ? move.wTime : move.bTime;
     };
 
-    const [analysisData, setAnalysisData] = useState(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-   
     
-    // GameBoard.jsx - Frissítsd ezt a függvényt
-const handlePlayBotsMenuClick = async () => {
+    const handlePlayBotsMenuClick = async () => {
     // 1. Megnézzük a hook-ot: van-e érvényes játék ID?
     if (gameLogic.gameId) {
         try {
@@ -177,7 +191,7 @@ const handlePlayBotsMenuClick = async () => {
         gameLogic.resetGame();
         navigate('bots');
     }
-};
+    };
 
     const handleRunFullAnalysis = async () => {
         if (!gameId || gameId === "null") return;
@@ -207,23 +221,30 @@ const handlePlayBotsMenuClick = async () => {
     };
 
     const isGameActive = !!gameId && gameId !== "null";
-    const [isStarting, setIsStarting] = useState(false);
 
     const handleBotSelect = async (bot, color, time) => {
     setIsStarting(true);
-    // Kényszerítsük a UI-t alaphelyzetbe indítás előtt
-    setIsGameActiveUI(false); 
     
-    const assignedColor = await startNewGame(bot, color, time);
-    
-    if (assignedColor) {
-        setOpponent(bot);
-        setIsSelectingBot(false);
-        setIsFlipped(assignedColor === 'black');
-        // EZ A SOR KULCSFONTOSSÁGÚ:
-        setIsGameActiveUI(true); 
+    // 1. Azonnal mutassuk a botot a fejlécben
+    setOpponent(bot); 
+    setPreviewOpponent(bot);
+
+    try {
+        // 2. Új játék indítása
+        const assignedColor = await startNewGame(bot, color, time);
+        
+        if (assignedColor) {
+            // 3. Ha elindult, rögzítsük véglegesre az ellenfelet
+            setOpponent(bot);
+            setIsSelectingBot(false);
+            setIsFlipped(assignedColor === 'black');
+            setIsGameActiveUI(true);
+        }
+    } catch (err) {
+        console.error("Hiba indításkor:", err);
+    } finally {
+        setIsStarting(false);
     }
-    setIsStarting(false);
 };
 
     // JAVÍTOTT POPUP EFFECT
@@ -373,27 +394,32 @@ const handlePlayBotsMenuClick = async () => {
             {/* ELLENFÉL ADATAI (Felső sáv) */}
             <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
-                        {/* JAVÍTÁS: Ha a /play oldalon vagyunk, mindig az alap robot ikont mutassuk */}
-                        {(isGameActiveUI ? opponent?.img : (location.pathname !== '/play' ? previewOpponent?.img : null)) ? (
-                            <img src={isGameActiveUI ? opponent.img : previewOpponent.img} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                            <i className="fas fa-robot text-[#808080] text-xl"></i>
-                        )}
-                    </div>
-                    <div className="flex flex-col justify-center">
-                        <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
-                            {/* JAVÍTÁS: Ha a /play oldalon vagyunk, akkor 'Opponent', egyébként mehet a bot neve */}
-                            {isGameActiveUI ? opponent?.name : (location.pathname !== '/play' && previewOpponent ? previewOpponent.name : 'Opponent')}
-                        </span>
-                        {/* Elo csak akkor, ha nem a sima /play oldalon vagyunk */}
-                        {(isGameActiveUI ? opponent : (location.pathname !== '/play' ? previewOpponent : null)) && (
-                            <span className="text-[#8b8987] text-[11px] font-bold">
-                                ({isGameActiveUI ? opponent?.elo : previewOpponent?.elo})
-                            </span>
-                        )}
-                    </div>
+                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
+                    {/* JAVÍTOTT KÉP LOGIKA */}
+                    {opponent?.img || previewOpponent?.img ? (
+                        <img 
+                            src={opponent?.img || previewOpponent?.img} 
+                            alt="" 
+                            className="w-full h-full object-cover" 
+                        />
+                    ) : (
+                        <i className="fas fa-robot text-[#808080] text-xl"></i>
+                    )}
                 </div>
+                <div className="flex flex-col justify-center">
+                    {/* JAVÍTOTT NÉV LOGIKA */}
+                    <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
+                        {opponent?.name || previewOpponent?.name || 'Opponent'}
+                    </span>
+                    
+                    {/* JAVÍTOTT ELO LOGIKA */}
+                    {(opponent?.elo || previewOpponent?.elo) && (
+                        <span className="text-[#8b8987] text-[11px] font-bold">
+                            ({opponent?.elo || previewOpponent?.elo})
+                        </span>
+                    )}
+                </div>
+            </div>
 
                 {/* ELLENFÉL ÓRÁJA */}
                 {/* JAVÍTÁS: Csak akkor mutassunk órát, ha van aktív játék VAGY a botválasztó menüben vagyunk */}
@@ -483,7 +509,10 @@ const handlePlayBotsMenuClick = async () => {
                         <i className="fas fa-user text-[#808080] text-xl"></i>
                     </div>
                     <div className="flex flex-col justify-center">
-                        <span className="text-[#bab9b8] font-bold text-[14px] leading-none">You</span>
+                        {/* JAVÍTÁS: "You" helyett a változó használata */}
+                        <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
+                            {userName}
+                        </span>
                     </div>
                 </div>
 
