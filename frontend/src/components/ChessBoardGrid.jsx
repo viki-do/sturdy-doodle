@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Chess } from 'chess.js';
 
@@ -8,23 +8,40 @@ const piecesMap = {
 };
 
 const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
+    const boardRef = useRef(null); // Ref a táblához a passzív eseménykezelő fixhez
+
     const {
         fen, selectedSquare, lastMove, validMoves, isDragging,
         hoverSquare, mousePos, isAlert, status,
         viewIndex, getSquareName, isFlipped, handleMouseUp
     } = gameLogic;
 
-    // --- JAVÍTOTT RÉSZ: Meghatározzuk az AKTUÁLIS király helyét ---
+    // --- TECHNIKAI JAVÍTÁS A KONZOL HIBÁHOZ ---
+    useEffect(() => {
+        const boardElement = boardRef.current;
+        if (!boardElement) return;
+
+        const preventDefault = (e) => {
+            if (e.cancelable) e.preventDefault();
+        };
+
+        // Kényszerítjük a non-passive módot, hogy a preventDefault működjön
+        boardElement.addEventListener('touchstart', preventDefault, { passive: false });
+        boardElement.addEventListener('touchmove', preventDefault, { passive: false });
+
+        return () => {
+            boardElement.removeEventListener('touchstart', preventDefault);
+            boardElement.removeEventListener('touchmove', preventDefault);
+        };
+    }, []);
+
     let activeKingSquare = null;
     if (isAlert) {
         try {
             const gameInstance = new Chess(fen);
             const board = gameInstance.board().flat();
-            
             const whiteKing = board.find(p => p && p.type === 'k' && p.color === 'w')?.square;
             const blackKing = board.find(p => p && p.type === 'k' && p.color === 'b')?.square;
-
-            // Ha sötéttel vagyunk (flipped), a sötét király villogjon, ha jön az alert
             activeKingSquare = isFlipped ? blackKing : whiteKing;
         } catch (error) { console.warn(error); }
     }
@@ -62,7 +79,6 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
             
             let currentBgColor = isDark ? 'bg-chess-dark' : 'bg-chess-light';
             
-            // --- JAVÍTOTT RÉSZ: activeKingSquare használata a villanáshoz ---
             if (isAlert && sqName === activeKingSquare) {
                 currentBgColor = isDark ? 'bg-[#DC2712]' : 'bg-[#FD1D19]';
             } else if (isSelected || isLast) {
@@ -76,58 +92,34 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
             boardCells.push(
                 <div
                     key={sqName}
-                    // Egér események
                     onMouseDown={(e) => onMouseDown(e, i, j)}
                     onMouseUp={() => handleMouseUp()} 
-                    
-                    // JAVÍTOTT érintőképernyő kezelés
-                    onTouchStart={(e) => {
-                        // Megállítjuk a görgetést/kijelölést, hogy a touchmove azonnal tüzeljen
-                        if (e.cancelable) e.preventDefault(); 
-                        onMouseDown(e, i, j);
-                    }}
-                    // Az onTouchMove-ot a Window szintjén figyeled a GameBoardban, 
-                    // de itt le kell tiltanunk a cella alapértelmezett reakcióját
-                    onTouchMove={(e) => {
-                        if (e.cancelable) e.preventDefault();
-                    }}
+                    onTouchStart={(e) => onMouseDown(e, i, j)}
                     onTouchEnd={(e) => {
-                        // Megakadályozzuk a "szellem-kattintást" (mouseup kiváltását touchend után)
-                        if (e.cancelable) e.preventDefault();
                         handleMouseUp();
                     }}
-                    
                     className={`w-21.25 h-21.25 flex justify-center items-center relative select-none transition-colors duration-150 ${currentBgColor} ${piece && status === "ongoing" && viewIndex === -1 ? 'cursor-grab' : 'cursor-default'}`}
-                    
                     style={{
                         outlineWidth: '3px',
                         outlineStyle: isHoverActive ? 'solid' : 'none',
                         outlineColor: hoverOutlineColor,
                         outlineOffset: '-3px',
                         zIndex: sqName === hoverSquare ? 30 : 1,
-                        
-                        // Ezek a stílusok mondják meg a laptop hardverének, hogy NE nyúljon bele
-                        touchAction: 'none', 
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
-                        WebkitTouchCallout: 'none',
+                        touchAction: 'none' // Megakadályozza a böngésző alapértelmezett húzását
                     }}
                 >
-                    {/* SZÁMOK - Változatlanul hagyva */}
                     {(isFlipped ? j === 7 : j === 0) && (
                         <span className={`absolute top-0.5 left-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {8 - i}
                         </span>
                     )}
 
-                    {/* BETŰK - Változatlanul hagyva */}
                     {(isFlipped ? i === 0 : i === 7) && (
                         <span className={`absolute bottom-0.5 right-1 text-[16px] font-semibold pointer-events-none ${(isSelected || isLast) ? (isDark ? 'text-[#f5f681]' : 'text-[#b9cb43]') : (isDark ? 'text-chess-light' : 'text-chess-dark')}`}>
                             {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'][j]}
                         </span>
                     )}
 
-                    {/* Valid lépések */}
                     {isValid && viewIndex === -1 && (
                         <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
                             {piece ? (
@@ -138,7 +130,6 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         </div>
                     )}
 
-                    {/* BÁBUK RENDERELÉSE */}
                     {piece && (!isDragging || selectedSquare !== sqName) && (
                         <motion.img
                             layout
@@ -162,7 +153,11 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
     }
 
     return (
-        <div id="chess-board" className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative z-0">
+        <div 
+            ref={boardRef} // A ref ide kerül a technikai fixhez
+            id="chess-board" 
+            className="w-170 h-170 grid grid-cols-8 border-2 border-chess-board-border relative z-0"
+        >
             {boardCells}
 
             <AnimatePresence>
@@ -171,26 +166,21 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                         key="dragging-piece"
                         src={`/assets/pieces/${piecesMap[draggedPieceData.piece]}.png`}
                         draggable="false"
-                        // Fontos: a pointer-events-none megakadályozza, hogy a bábu "elfogja" az egeret saját maga elől
                         className="pointer-events-none fixed" 
                         style={{
-                            // Csak a fix stílusok maradjanak itt
                             width: '80px',
                             height: '80px',
                             zIndex: 99999,
                             filter: 'drop-shadow(0px 10px 20px rgba(0,0,0,0.4))',
-                            // Ezek biztosítják, hogy pontosan az ujjad/kurzorod alatt legyen a közepe
                             left: 0,
                             top: 0,
                         }}
-                        // Itt jön a lényeg: az x és y koordinátákat az animate-be tesszük
                         initial={false}
                         animate={{ 
-                            x: mousePos.x - 40, // A szélesség fele (80/2)
-                            y: mousePos.y - 40, // A magasság fele (80/2)
+                            x: mousePos.x - 40,
+                            y: mousePos.y - 40,
                             scale: 1.1 
                         }}
-                        // A transition: 0 biztosítja, hogy ne "ússzon" a kurzor után, hanem azonnal ott legyen
                         transition={{ type: "tween", ease: "linear", duration: 0 }}
                         exit={{ opacity: 0, scale: 1 }}
                     />

@@ -44,6 +44,7 @@ export const useChessGame = () => {
     // const lastPlayedTickRef = useRef(-1);
     const lastBotRef = useRef({ elo: 1500, id: 'engine', style: 'mix' });
     const [isFlipped, setIsFlipped] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
 
 
     const playSound = useCallback((soundName) => {
@@ -158,6 +159,10 @@ export const useChessGame = () => {
 
 
     const startNewGame = useCallback(async (bot, color = 'white', timeControl) => {
+
+    setGameId(null);
+    setStatus("");
+    setHistory([]);
     // 1. BOT ADATOK VALIDÁLÁSA ÉS MENTÉSE
     if (bot && typeof bot === 'object' && bot.elo) {
         lastBotRef.current = bot;
@@ -250,6 +255,44 @@ export const useChessGame = () => {
         return color === 'black' ? 'black' : 'white';
     }
 }, [token, API_BASE, playSound, fetchGameState, parseTimeControl, lastTimeControl, lastBotRef, setIsFlipped]); 
+
+
+const initializeGame = useCallback(async () => {
+    console.log("HOOK: initializeGame elindult");
+    if (!token) {
+        console.log("HOOK: Nincs token, leállás");
+        setIsLoading(false);
+        return;
+    }
+    setIsLoading(true);
+    try {
+        const res = await axios.get(`${API_BASE}/get-active-game`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        console.log("HOOK: API válasz érkezett:", res.data);
+
+        if (res.data.game_id) { // Kivettük a status === "ongoing" kényszert
+    console.log("HOOK: Aktív meccs találva, ID:", res.data.game_id);
+    const newId = res.data.game_id;
+    
+    setGameId(newId);
+    setStatus("ongoing"); // Manuálisan beállítjuk, ha már megjött az ID
+    
+    // Töltsük be a bábukat és az előzményeket
+    await fetchGameState(newId);
+} else {
+    console.log("HOOK: Tényleg nincs játék a szerveren.");
+    setGameId(null);
+}
+    } catch (e) {
+        console.error("HOOK: Hiba az inicializálás alatt:", e);
+        setGameId(null);
+    } finally {
+        console.log("HOOK: isLoading -> false");
+        setIsLoading(false);
+    }
+}, [token, API_BASE, fetchGameState]);
 
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
@@ -625,5 +668,5 @@ const handleMouseDown = (e, row, col) => {
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
         goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime,
         activeTimeColor, isFlipped, setIsFlipped,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl,
-        opening, setOpening, setSpectatorMode };
+        opening, setOpening, setSpectatorMode, isLoading, initializeGame };
 };

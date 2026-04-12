@@ -1,42 +1,63 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import MoveListPanel from './MoveListPanel';
 import BotSelectionPanel from './BotSelectionPanel';
+import MoveListPanel from './MoveListPanel';
 
 const BotSelectionOrGame = () => {
     const context = useOutletContext();
     const navigate = useNavigate();
-    
-    // Csak azokat a változókat destruktúráljuk, amikre tényleg szükség van itt a döntéshez
+
+    // Adatok kinyerése a contextből
     const { 
         gameId, 
-        isGameActiveUI, 
-        history, 
-        status,
-        handleBotSelect,
-        handleTimeChange,
-        handleSelectionColorChange,
-        setPreviewOpponent
+        status, 
+        isLoading, 
+        handleBotSelect, 
+        handleTimeChange, 
+        handleSelectionColorChange, 
+        setPreviewOpponent,
+        isGameActiveUI 
     } = context;
 
-    // Definiáljuk a játék végét jelző állapotokat
-    const isGameOver = ["resigned", "checkmate", "draw", "stalemate", "aborted", "finished"].includes(status);
-    
-    // A DÖNTÉS: Maradjunk a MoveListPanelen, ha:
-    // 1. Van érvényes játék ID
-    // 2. A játék fut VAGY vége van
-    // 3. A UI aktív állapotban van (vagy már vannak lépések a history-ban)
-    const shouldShowMoveList = gameId && (status === "ongoing" || isGameOver) && (isGameActiveUI || (history && history.length > 1));
+    // --- DIAGNOSZTIKAI LOGOK ---
+    useEffect(() => {
+        console.log("=== BotSelectionOrGame Render Log ===");
+        console.log("ID:", gameId);
+        console.log("Státusz:", status || "üres");
+        console.log("Töltés (isLoading):", isLoading);
+        console.log("UI Aktív (isGameActiveUI):", isGameActiveUI);
+        console.log("=====================================");
+    }, [gameId, status, isLoading, isGameActiveUI]);
 
-    if (shouldShowMoveList) {
+    /**
+     * 1. LÉPÉS: Várakozás
+     * Ha a hook (useChessGame) még dolgozik, nem döntünk el semmit.
+     */
+    if (isLoading) {
+        console.log("PANEL: Még töltünk, üres képernyő.");
+        return <div className="flex-1 bg-[#262421]" />;
+    }
+
+    /**
+     * 2. LÉPÉS: A döntés
+     * Ha van érvényes gameId és a játék folyamatban van, mehet a MoveList.
+     * Az F5 után itt dől el, hogy visszakapod-e a játékot.
+     */
+    if (gameId && (status === "ongoing" || status === "checkmate" || status === "resigned")) {
+        console.log("PANEL: Játék észlelve, MoveListPanel megjelenítése.");
         return (
             <MoveListPanel 
-                {...context} // Átadjuk az összes adatot a panelnek (benne a gameLogic-ot is)
+                {...context} 
+                onFlipBoard={() => context.setIsFlipped(!context.isFlipped)} 
             />
         );
     }
 
-    // Ha nincs aktív/befejezett meccs megjelenítés alatt, jöhet a bot lista
+    /**
+     * 3. LÉPÉS: Alapértelmezett állapot
+     * Ha nincs játék, akkor a választó panelt mutatjuk.
+     */
+    console.log("PANEL: Nincs aktív játék, BotSelectionPanel megjelenítése.");
     return (
         <BotSelectionPanel 
             onBack={() => navigate('/play')}
@@ -44,6 +65,7 @@ const BotSelectionOrGame = () => {
             onTimeChange={handleTimeChange}
             onColorChange={handleSelectionColorChange}
             onPreviewChange={setPreviewOpponent}
+            
         />
     );
 };

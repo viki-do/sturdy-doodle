@@ -22,11 +22,12 @@ const GameBoard = () => {
     const [opponent, setOpponent] = useState(null);
     const [isViewingGame, setIsViewingGame] = useState(false);
     const [previewOpponent, setPreviewOpponent] = useState(null);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
 
     const {
         status, history, viewIndex, startNewGame, handleResign, fetchGameState,
         token, gameId, setGameId, setFen, setLastMove, setViewIndex, isFlipped, setIsFlipped,
-        getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,
+        getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,isLoading, initializeGame,
         setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
         setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
         renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
@@ -38,43 +39,59 @@ const GameBoard = () => {
     const getInitialTimeDisplay = (timeStr) => {
             const config = gameLogic.parseTimeControl(timeStr);
             return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
-        };
-    
+    };
 
-    useEffect(() => {
-        if (location.pathname === '/play') {
+  useEffect(() => {
+    initializeGame();
+}, [initializeGame]);
+
+// GameBoard.jsx - Az összes UI és Reset logika egyben
+useEffect(() => {
+    const handleStateSync = async () => {
+        // 1. Amíg töltünk, ne nyúljunk semmihez
+        if (gameLogic.isLoading) return;
+
+        console.log("SZINKRON: Betöltés kész. JátékID:", gameLogic.gameId);
+
+        // 2. HA VAN JÁTÉK: Feloldjuk a UI-t és szinkronizálunk
+        if (gameLogic.gameId) {
+            setIsGameActiveUI(true);
+
+            // Csak akkor kérdezzük le, ha még nincs ellenfél (F5 után)
+            if (!opponent) {
+                try {
+                    const res = await axios.get(`${API_BASE}/get-active-game`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+
+                    if (res.data.game_id) {
+                        setIsFlipped(res.data.player_color === 'black');
+                        
+                        let bData = null;
+                        for (const cat of botCategories) {
+                            const found = cat.bots.find(b => b.elo === res.data.bot_elo);
+                            if (found) { bData = found; break; }
+                        }
+                        setOpponent(bData);
+                    }
+                } catch (e) { console.error("Hiba az ellenfél pótlásakor"); }
+            }
+        } 
+        // 3. HA NINCS JÁTÉK ÉS A FŐOLDALON VAGYUNK: Takarítás
+        else if (location.pathname === '/play') {
             setIsGameActiveUI(false);
-            setIsSelectingBot(false);
-            setIsFlipped(false);
-            setPreviewOpponent(null);
-            setSpectatorMode();
+            setOpponent(null);
+            // Csak akkor reseteljünk mindent, ha tényleg nincs miért maradni
             if (gameLogic.status !== "ongoing") {
                 gameLogic.resetGame();
             }
         }
-    }, [location.pathname]);
+    };
 
-    useEffect(() => {
-        const checkActive = async () => {
-            if (!token) return;
-            try {
-                const res = await axios.get(`${API_BASE}/get-active-game`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.data.game_id) {
-                    setGameId(res.data.game_id);
-                    const botElo = res.data.bot_elo;
-                    let bData = null;
-                    for (const cat of botCategories) {
-                        const found = cat.bots.find(b => b.elo === botElo);
-                        if (found) { bData = found; break; }
-                    }
-                    setOpponent(bData);
-                }
-            } catch (e) { console.log("Nincs aktív játék"); }
-        };
-        checkActive();
-    }, []);
+    handleStateSync();
+// Figyeljük a legfontosabb változókat
+}, [gameLogic.isLoading, gameLogic.gameId, location.pathname]);
+  
 
     const handleSelectionColorChange = (color) => {
         if (color === 'random') {
@@ -124,69 +141,43 @@ const GameBoard = () => {
     const [analysisData, setAnalysisData] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-    useEffect(() => {
-        const initialize = async () => {
-            const isOnPlayRoot = location.pathname === '/play';
-            const isOnBotsPage = location.pathname.includes('/bots');
-
-            if (isOnPlayRoot) {
-                gameLogic.setSpectatorMode();
-                setIsFlipped(false);
-            }
-
-            if (!token) return;
-
-            try {
+   
+    
+    // GameBoard.jsx - Frissítsd ezt a függvényt
+const handlePlayBotsMenuClick = async () => {
+    // 1. Megnézzük a hook-ot: van-e érvényes játék ID?
+    if (gameLogic.gameId) {
+        try {
+            // 2. Beállítjuk a UI-t aktívra (tábla feloldása)
+            setIsGameActiveUI(true);
+            
+            // 3. Biztosítjuk az ellenfél adatait (ha esetleg elvesztek volna)
+            if (!opponent) {
                 const res = await axios.get(`${API_BASE}/get-active-game`, { 
                     headers: { Authorization: `Bearer ${token}` } 
                 });
-                
-                if (res.data.game_id && res.data.status === "ongoing") {
-                    setGameId(res.data.game_id);
-                    const pColor = res.data.player_color;
-                    
-                    if (isOnBotsPage) {
-                        setIsFlipped(pColor === 'black');
-                        await fetchGameState(res.data.game_id);
-                        setIsGameActiveUI(true);
-                    }
-
-                    const botElo = res.data.bot_elo;
+                if (res.data.bot_elo) {
                     let bData = null;
                     for (const cat of botCategories) {
-                        const found = cat.bots.find(b => b.elo === botElo);
+                        const found = cat.bots.find(b => b.elo === res.data.bot_elo);
                         if (found) { bData = found; break; }
                     }
                     setOpponent(bData);
                 }
-            } catch (e) { console.log("Hiba az inicializáláskor"); }
-        };
-        initialize();
-    }, [token, location.pathname, API_BASE]);
-
-    const handlePlayBotsMenuClick = async () => {
-        if (gameId && opponent) {
-            try {
-                const res = await axios.get(`${API_BASE}/get-active-game`, { 
-                    headers: { Authorization: `Bearer ${token}` } 
-                });
-                if (res.data.player_color) {
-                    setIsFlipped(res.data.player_color === 'black');
-                }
-                const resData = await fetchGameState(gameId);
-                if (resData) {
-                    setIsGameActiveUI(true);
-                    setTimeout(() => navigate('bots'), 50); 
-                }
-            } catch (err) {
-                navigate('bots');
             }
-        } else {
-            setIsGameActiveUI(false);
-            gameLogic.resetGame();
+            
+            // 4. Navigálunk a bots oldalra (ahol a MoveListPanel lakik)
+            navigate('bots'); 
+        } catch (err) {
             navigate('bots');
         }
-    };
+    } else {
+        // Ha nincs játék, alaphelyzet és irány a botválasztó
+        setIsGameActiveUI(false);
+        gameLogic.resetGame();
+        navigate('bots');
+    }
+};
 
     const handleRunFullAnalysis = async () => {
         if (!gameId || gameId === "null") return;
@@ -219,16 +210,21 @@ const GameBoard = () => {
     const [isStarting, setIsStarting] = useState(false);
 
     const handleBotSelect = async (bot, color, time) => {
-        setIsStarting(true);
-        const assignedColor = await startNewGame(bot, color, time);
-        if (assignedColor) {
-            setOpponent(bot);
-            setIsSelectingBot(false);
-            setIsFlipped(assignedColor === 'black');
-            setIsGameActiveUI(true);
-        }
-        setIsStarting(false);
-    };
+    setIsStarting(true);
+    // Kényszerítsük a UI-t alaphelyzetbe indítás előtt
+    setIsGameActiveUI(false); 
+    
+    const assignedColor = await startNewGame(bot, color, time);
+    
+    if (assignedColor) {
+        setOpponent(bot);
+        setIsSelectingBot(false);
+        setIsFlipped(assignedColor === 'black');
+        // EZ A SOR KULCSFONTOSSÁGÚ:
+        setIsGameActiveUI(true); 
+    }
+    setIsStarting(false);
+};
 
     // JAVÍTOTT POPUP EFFECT
     useEffect(() => {
@@ -513,25 +509,25 @@ const GameBoard = () => {
 
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
                 <Outlet context={{ 
-                    ...gameLogic, 
-                    isGameActiveUI, 
-                    setIsGameActiveUI, 
-                    isFlipped, 
-                    setIsFlipped,
-                    handlePlayBotsMenuClick,
-                    handleBotSelect,
-                    handleSelectionColorChange,
-                    handleTimeChange,
-                    handleRunFullAnalysis,
-                    analysisData,
-                    isPopupClosed,
-                    setIsPopupClosed,
-                    isAnalyzing,
-                    selectedTime,
-                    previewOpponent,
-                    setPreviewOpponent,
-                    isPopupVisible: delayedShowPopup
-                }} />
+                ...gameLogic, 
+                gameId: gameLogic.gameId,
+                status: gameLogic.status,
+                isLoading: gameLogic.isLoading,
+                isGameActiveUI, 
+                setIsGameActiveUI, 
+                opponent, // EZ KELL IDE!
+                setOpponent,
+                isFlipped,
+                setIsFlipped,
+                handleBotSelect, // A GameBoard-os verzió
+                handlePlayBotsMenuClick,
+                handleTimeChange,
+                handleSelectionColorChange,
+                setPreviewOpponent,
+                isPopupClosed,
+                setIsPopupClosed,
+                setIsPopupVisible:delayedShowPopup
+            }} />
             </div>
         </div>
     );
