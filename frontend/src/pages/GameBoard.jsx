@@ -2,7 +2,8 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ChessBoardGrid from '../components/ChessBoardGrid';
-import { useChessGame } from '../hooks/useChessGame.jsx';
+// JAVÍTÁS: useChessGame helyett useChess Context importálása
+import { useChess } from '../context/ChessContext';
 import ClockIcon from '../components/ClockIcon';
 import axios from 'axios';
 import { Chess } from 'chess.js';
@@ -10,7 +11,6 @@ import { botCategories } from '../constants/bots.js';
 
 const GameBoard = () => {
     
-
     // --- 1. MINDEN STATE DEKLARÁCIÓ AZ ELEJÉRE ---
 
     const [isStarting, setIsStarting] = useState(false);
@@ -31,7 +31,8 @@ const GameBoard = () => {
 
     // --- 2. HOOK ÉS NAVIGÁCIÓ ---
 
-    const gameLogic = useChessGame();
+    // JAVÍTÁS: useChessGame() helyett useChess() - így a központi állapotot kapod meg
+    const gameLogic = useChess(); 
     const navigate = useNavigate();
     const location = useLocation();
 

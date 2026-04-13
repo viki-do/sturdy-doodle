@@ -2,12 +2,14 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import MoveListPanel from '../components/MoveListPanel';
-import { useChessGame } from '../hooks/useChessGame.jsx';
+// JAVÍTÁS: useChessGame helyett a központi useChess Context-et használjuk
+import { useChess } from '../context/ChessContext';
 import axios from 'axios';
 import { Chess } from 'chess.js';
 
 const AnalyzeBoard = () => {
-    const gameLogic = useChessGame();
+    // JAVÍTÁS: A központi "agyhoz" kapcsolódunk
+    const gameLogic = useChess();
     const [isFlipped, setIsFlipped] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [pendingPromotion, setPendingPromotion] = useState(null);

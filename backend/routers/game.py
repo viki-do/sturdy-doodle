@@ -2,22 +2,24 @@ import uuid
 import chess
 import chess.engine
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+# Request hozzáadva a FastAPI importokhoz
+from fastapi import APIRouter, Depends, HTTPException, Request 
 from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
-# Importáljuk az auth segédfüggvényt
 from .auth import get_current_user_id
 import time
 import json
 import os
+import asyncio
+import random
 from .analysis_engine import ChessCoachEngine
 
 router = APIRouter(tags=["Chess Game"])
 coach = ChessCoachEngine()
+
 # Globális változó a motornak
 engine_singleton = None
-
 
 STOCKFISH_PATH = "engine/stockfish.exe"
 OPENING_BOOK = {}
@@ -39,6 +41,11 @@ def get_db():
     finally:
         db.close()
 
+# --- HELPER A SOCKET ELÉRÉSÉHEZ ---
+def get_sio(request: Request):
+    """Visszaadja a main.py-ban definiált Socket.io szervert"""
+    return request.app.state.sio
+
 @router.post("/analyze-full-game/{game_id}")
 def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     game_uuid = uuid.UUID(game_id)
@@ -50,8 +57,6 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
     if not game or not moves:
         raise HTTPException(status_code=404, detail="Game or moves not found")
 
-    # Felhasználó ELO-jának lekérése (vagy alapértelmezett 1200)
-    # Ha van a user tábládban elo, itt húzd be, most fix 1200-zal számolunk
     player_elo = 1200 
 
     engine = get_engine()
@@ -73,20 +78,17 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
 
         current_phase = coach.get_game_phase(board)
         
-        # --- GYORSÍTÁS: BOOK MOVE ELLENŐRZÉS ---
         parts = board.fen().split()
         search_key = f"{parts[0]} {parts[1]}"
         is_book = search_key in OPENING_BOOK
         
         if is_book:
-            # Ha benne van a könyvben, átugorjuk a Stockfisht
             label = "book"
             move_eval = prev_eval
             loss = 0.0
             best_move_san = m.notation
             p_before = coach.get_win_chance(prev_eval if board.turn == chess.WHITE else -prev_eval)
         else:
-            # MÉLYELEMZÉS (Csak ha már nem BOOK lépés)
             analysis = engine.analyse(board, chess.engine.Limit(depth=18), multipv=3)
             
             try:
@@ -94,25 +96,21 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
             except:
                 player_move = board.parse_uci(m.notation)
 
-            # Kategorizálás (ELO alapú skálázással)
             label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, player_elo)
             
             is_white = board.turn == chess.WHITE
             best_eval = analysis[0]["score"].white().score(mate_score=10000)
             
-            # Win Chance számítások a statisztikához
             p_before = coach.get_win_chance(prev_eval if is_white else -prev_eval)
             wc_best = coach.get_win_chance(best_eval if is_white else -best_eval)
             wc_actual = coach.get_win_chance(move_eval if is_white else -move_eval)
             loss = max(0, wc_best - wc_actual)
             best_move_san = board.san(analysis[0]["pv"][0])
 
-        # Statisztikák gyűjtése
         phase_stats[current_phase]["losses"].append(loss)
         phase_stats[current_phase]["p_befores"].append(p_before)
         phase_stats[current_phase]["counts"][label] = phase_stats[current_phase]["counts"].get(label, 0) + 1
 
-        # Lépés mentése a listába
         full_analysis.append({
             "move_number": m.move_number,
             "notation": m.notation,
@@ -122,14 +120,12 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
             "phase": current_phase
         })
 
-        # Tábla frissítése
         try:
             board.push_san(m.notation)
         except:
             board.push_uci(m.notation)
         prev_eval = move_eval
 
-    # 3. ÖSSZEGZÉS GENERÁLÁSA
     summary = {}
     all_losses = []
     all_p_befores = []
@@ -138,7 +134,6 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
         losses = phase_stats[phase]["losses"]
         p_befores = phase_stats[phase]["p_befores"]
         if losses:
-            # Új calculate_accuracy hívás smoothing-gal
             acc = coach.calculate_accuracy(losses, p_befores)
             all_losses.extend(losses)
             all_p_befores.extend(p_befores)
@@ -160,24 +155,18 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
         "player_color": game.player_color
     }
 
-
 def get_skill_level_from_elo(elo: int) -> int:
-    """Stockfish Skill Level (0-20) kiszámítása ELO alapján"""
     if elo <= 250: return 0
     if elo >= 3000: return 20
-    # Skálázás 250 és 3000 között
     level = int((elo - 250) / (3000 - 250) * 20)
     return max(0, min(20, level))
 
 def load_openings():
     global OPENING_BOOK
-    # Az útvonal a data/openings mappára mutat
     base_path = os.path.join("data", "openings")
-    
     for letter in ['A', 'B', 'C', 'D', 'E']:
         file_name = f"eco{letter}.json"
         full_path = os.path.join(base_path, file_name)
-        
         if os.path.exists(full_path):
             try:
                 with open(full_path, "r", encoding="utf-8") as f:
@@ -185,31 +174,21 @@ def load_openings():
                     OPENING_BOOK.update(data)
             except Exception as e:
                 print(f"Hiba a {file_name} betöltésekor: {e}")
-    
     print(f"Sakk könyvtár kész: {len(OPENING_BOOK)} megnyitás betöltve.")
 
-# Ez egyszer fusson le a szerver indulásakor
 load_openings()
 
 def find_opening_by_fen(fen: str):
-    """Megnyitás keresése bárhonnan (Sandbox vagy meccs) a memóriában lévő adatokból."""
     if not fen: return None
     parts = fen.split()
     if len(parts) < 2: return None
-
-    # Kulcs: pozíció és a soron következő szín
     search_key = f"{parts[0]} {parts[1]}"
-    
-    # 1. Gyors keresés
     opening = OPENING_BOOK.get(search_key)
-    
-    # 2. 'startswith' fallback (ha a FEN többi része eltérne)
     if not opening:
         for db_fen, info in OPENING_BOOK.items():
             if db_fen.startswith(search_key):
                 opening = info
                 break
-    
     if opening:
         return {
             "name": opening.get("name"),
@@ -231,6 +210,7 @@ def get_opening_with_fallback(db: Session, game_id: uuid.UUID):
             return opening
 
     return None
+
 @router.post("/analyze-sandbox-move")
 def analyze_sandbox_move(data: dict):
     fen_before = data.get("fen_before")
@@ -295,8 +275,10 @@ def rebuild_board(game_id: uuid.UUID, db: Session):
     return board
 
 @router.post("/create-game")
-def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def create_game(request: Request, data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    # Megjegyzés: async def-re váltottunk és bekerült a request: Request a Socket.io miatt
     try:
+        sio = get_sio(request) # Socket elérése
         u_uuid = uuid.UUID(user_id)
         chosen_color = data.get("color", "white")
         
@@ -340,7 +322,6 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
 
         # --- BOT LÉPÉSE (HA A USER FEKETE, A BOT KEZD FEHÉRREL) ---
         if chosen_color == "black":
-            
             engine = get_engine()
             
             # Konfigurálás
@@ -366,6 +347,14 @@ def create_game(data: dict, user_id: str = Depends(get_current_user_id), db: Ses
                 fen_after=board.fen()
             ))
             db.commit()
+
+            # --- SOCKET ÉRTESÍTÉS ---
+            # Jelezzük a kliensnek, hogy a bot lépett (ha már csatlakozott a szobához)
+            await sio.emit("game_started", {
+                "game_id": str(new_game.id),
+                "fen": board.fen(),
+                "last_move": move_san
+            }, room=str(new_game.id))
 
         return {
             "game_id": str(new_game.id), 
@@ -427,16 +416,17 @@ def get_game_over_details(b: chess.Board):
 
     return models.GameStatus.ongoing, None
 
+# --- 3. RÉSZ (TELJES, MINDEN FUNKCIÓVAL) ---
 
-# 2. A MOVE VÉGPONT - Ez következzen utána
 @router.post("/move")
-def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def make_move(request: Request, data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     game_uuid = uuid.UUID(data.get("game_id"))
     move_uci = data.get("move")
     is_timeout = data.get("timeout", False)
     is_resignation = data.get("resigned", False)
 
     try:
+        sio = get_sio(request)
         game_rec = db.query(models.Game).filter(models.Game.id == game_uuid).first()
         if not game_rec:
             raise HTTPException(status_code=404, detail="Game not found")
@@ -470,6 +460,13 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
                     reason = f"{winner} wins by resignation"
 
             db.commit()
+            
+            await sio.emit("game_over", {
+                "game_id": str(game_uuid),
+                "status": game_rec.status.value,
+                "reason": reason
+            }, room=str(game_uuid))
+
             return {
                 "status": game_rec.status.value, 
                 "reason": reason, 
@@ -493,7 +490,6 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         if user_move not in board.legal_moves:
             raise HTTPException(status_code=400, detail="Illegal move")
 
-        # Mentés a DB-be
         fen_elotte = board.fen()
         user_move_san = board.san(user_move)
         board.push(user_move)
@@ -509,26 +505,29 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         ))
         db.commit()
 
-        # --- 3. BOT VÁLASZA (Személyiség és Blunder logika) ---
-        bot_res = {"from": "", "to": "", "san": "", "evaluation": 0.0}
-        chosen_move = None  # Alaphelyzetbe állítás a biztonság kedvéért
+        # --- 3. BOT VÁLASZA (Késleltetéssel) ---
+        bot_res = {"from": "", "to": "", "san": "", "evaluation": 0.0, "think_time": 0.0}
+        chosen_move = None 
 
         if not board.is_game_over():
-            import random
+            # ÚJ: Random gondolkodási idő generálása (1 és 4 másodperc között)
+            think_time = round(random.uniform(1.0, 4.0), 1)
+            bot_res["think_time"] = think_time
+            
+            # Aszinkron várakozás, nem blokkolja a szervert
+            await asyncio.sleep(think_time)
+
             engine = get_engine()
             bot_elo = game_rec.bot_elo or 1500
             bot_id = str(game_rec.bot_id).lower()
             bot_style = (game_rec.bot_style or "universal").lower()
             
-            # Alap Stockfish konfiguráció az ELO alapján
             engine.configure({"Skill Level": get_skill_level_from_elo(bot_elo)})
             
-            # Limit meghatározása (Beginner botok/engine rövidlátóak legyenek)
             limit_params = {"time": 0.1}
             if bot_elo < 800: 
                 limit_params["nodes"] = 400
             
-            # Szélesebb spektrumot kérünk (MultiPV 5), hogy legyen miből válogatni
             analysis = engine.analyse(board, chess.engine.Limit(**limit_params), multipv=5)
             
             if not analysis:
@@ -537,56 +536,39 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
                 options = [a["pv"][0] for a in analysis]
                 r = random.random()
 
-                # --- ELÁGAZÁS: NYERS ENGINE vs. SZEMÉLYISÉGGEL RENDELKEZŐ BOT ---
                 if bot_id == "engine":
-                    # Az Engine mindig a legjobbat lépi, amit az adott Skill Levelen talál
                     chosen_move = options[0]
-                    print(f"DEBUG: Nyers Engine lép (ELO: {bot_elo})")
                 else:
-                    # BOT SZEMÉLYISÉG LOGIKA
                     if bot_style == "attacker":
                         aggressive = [m for m in options if board.is_capture(m) or board.gives_check(m)]
                         chosen_move = random.choice(aggressive) if aggressive and r < 0.8 else options[0]
-
                     elif bot_style == "positional":
                         quiet = [m for m in options if not board.is_capture(m) and not board.gives_check(m)]
                         chosen_move = quiet[0] if quiet else options[0]
-
                     elif bot_style == "tactician":
-                        # A taktikus 90%-ban pontos, de néha a trükkösebb 2. opciót választja
                         chosen_move = options[0] if r < 0.9 or len(options) < 2 else options[1]
-
                     elif bot_style == "universal":
                         chosen_move = options[0] if r < 0.7 else random.choice(options[:2])
-
                     elif bot_style == "prophylactic":
-                        # Megelőző: kerüli az ütésbe lépést a top listából
                         safe = [m for m in options if not board.is_capture(m)]
                         chosen_move = safe[0] if safe else options[0]
-                    
                     else:
                         chosen_move = options[0]
 
-                    # --- KEZDŐ BLUNDER (Csak Botoknál, Engine-nél nem szándékos) ---
                     if bot_elo < 500 and r < 0.4 and len(options) > 1:
                         chosen_move = options[-1] 
-                        print(f"DEBUG: Bot {game_rec.bot_id} szándékos hibát (blunder) vétett!")
                         
-            # --- VÉGREHAJTÁS ÉS MENTÉS ---
             if chosen_move:
-                print(f"DEBUG: Bot ({bot_style}) választott lépése: {chosen_move}")
                 bot_res["san"] = board.san(chosen_move)
                 bot_res["from"] = chess.square_name(chosen_move.from_square)
                 bot_res["to"] = chess.square_name(chosen_move.to_square)
                 
-                # Evaluation (Mindig a legjobb lépés alapján az EvalBar-nak)
                 try:
                     score = analysis[0]["score"].white()
                     bot_res["evaluation"] = f"M{score.mate()}" if score.is_mate() else score.score() / 100.0
                 except:
                     bot_res["evaluation"] = 0.0
 
-                # Tábla frissítése és mentése
                 f_before = board.fen()
                 board.push(chosen_move)
                 f_after = board.fen()
@@ -600,16 +582,28 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
                     fen_after=f_after
                 ))
                 db.commit()
-            else:
-                print("DEBUG: Nem sikerült lépést választani!")
 
-        # --- 4. MEGNYITÁS ÉS VÉGSZÓ ---
+                # WebSocket értesítés (most már tartalmazza a thinking_time-ot)
+                await sio.emit("bot_moved", {
+                    "game_id": str(game_uuid),
+                    "fen": f_after,
+                    "move": bot_res,
+                    "thinking_time": think_time,
+                    "evaluation": bot_res["evaluation"]
+                }, room=str(game_uuid))
+
         opening_data = get_opening_with_fallback(db, game_uuid)
-
         final_status_enum, final_reason = get_game_over_details(board)
+        
         if final_status_enum != models.GameStatus.ongoing:
             game_rec.status = final_status_enum
             db.commit()
+            
+            await sio.emit("game_over", {
+                "game_id": str(game_uuid),
+                "status": final_status_enum.value,
+                "reason": final_reason
+            }, room=str(game_uuid))
 
         return {
             "new_fen": board.fen(),
@@ -627,6 +621,8 @@ def make_move(data: dict, user_id: str = Depends(get_current_user_id), db: Sessi
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
     
+# --- 4. RÉSZ (BEFEJEZŐ, MINDEN FUNKCIÓVAL) ---
+
 @router.get("/game/{game_id}/history")
 def get_game_history(game_id: str, db: Session = Depends(get_db)):
     try:
@@ -673,7 +669,6 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
                 continue
 
         # --- AZ ÚJ, OKOS MEGNYITÁS KERESÉS ---
-        # Itt is az új függvényt hívjuk, ami visszanéz a múltba, ha kell
         opening_data = get_opening_with_fallback(db, game_uuid)
 
         # --- PONTOS OK (REASON) MEGHATÁROZÁSA ---
@@ -703,7 +698,7 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
             "history": history_data,
             "status": status_value,
             "reason": reason,
-            "opening": opening_data  # <--- Az intelligens adat megy vissza
+            "opening": opening_data
         }
 
     except Exception as e:
@@ -714,7 +709,6 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
 @router.get("/get-active-game")
 def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     u_uuid = uuid.UUID(user_id)
-    # Keressük a játékot, ahol a user vagy fehér, vagy fekete bábukkal van
     active_game = db.query(models.Game).filter(
         ((models.Game.white_player_id == u_uuid) | (models.Game.black_player_id == u_uuid)),
         models.Game.status == models.GameStatus.ongoing
@@ -728,41 +722,73 @@ def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = D
     return {"game_id": None}
 
 @router.post("/resign-game")
-def resign_game(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def resign_game(request: Request, data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     try:
-        game_uuid = uuid.UUID(str(data.get("game_id")))
-        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
-        if not game: return {"status": "not_found"}
+        # 1. Socket.io elérése a központi state-ből
+        sio = get_sio(request)
+        
+        # 2. Adatok kinyerése és validálása
+        game_id_raw = data.get("game_id")
+        if not game_id_raw or game_id_raw == "null":
+            return {"status": "error", "message": "Missing or invalid game_id"}
 
-        # Megszámoljuk a valódi lépéseket
+        # Biztonságos UUID konvertálás
+        try:
+            game_uuid = uuid.UUID(str(game_id_raw))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid UUID format")
+
+        # 3. Játék lekérése az adatbázisból
+        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+        if not game: 
+            return {"status": "not_found"}
+
+        # 4. Valódi lépések számolása (Abort vagy Resign döntéshez)
         real_moves = db.query(models.Move).filter(
             models.Move.game_id == game_uuid, 
             models.Move.notation != "start"
         ).count()
 
-        # Ha a user fehérrel van és < 3 lépés történt (vagy feketével és < 4)
-        # Egyszerűsítve: ha nem történt meg a fehér 2. lépése (ami a 3. fél-lépés)
+        # 5. Logika: 3 lépés alatt Aborted, felette Resigned
         if real_moves < 3:
             game.status = models.GameStatus.aborted
-            db.commit()
-            return {"status": "aborted", "reason": "Game Aborted"}
-
-        # Normál feladás
-        user_color = str(game.player_color).lower()
-        winner = "Black" if user_color == "white" else "White"
-        game.status = models.GameStatus.resigned 
+            reason = "Game Aborted"
+        else:
+            user_color = str(game.player_color).lower()
+            winner = "Black" if user_color == "white" else "White"
+            game.status = models.GameStatus.resigned 
+            reason = f"{winner} wins by resignation"
+            
         db.commit()
+
+        # 6. WebSocket értesítés küldése a szobának
+        # Az aszinkron emit miatt kell az await
+        await sio.emit("game_over", {
+            "game_id": str(game_uuid),
+            "status": game.status.value,
+            "reason": reason
+        }, room=str(game_uuid))
         
-        return {"status": "resigned", "reason": f"{winner} wins by resignation"}
+        # 7. Válasz küldése a HTTP kérésre
+        return {
+            "status": game.status.value, 
+            "reason": reason
+        }
+
     except Exception as e:
+        # Hiba esetén visszagörgetjük az adatbázist
         db.rollback()
+        # Ez a sor kiírja a pontos hibát a Python terminálba (pl. NameError vagy AttributeError)
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/handle-timeout")
-def handle_timeout(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def handle_timeout(request: Request, data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     try:
+        sio = get_sio(request)
         game_uuid = uuid.UUID(str(data.get("game_id")))
-        lost_color = data.get("color") # 'white' vagy 'black'
+        lost_color = data.get("color")
         game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
         
         if not game:
@@ -770,43 +796,52 @@ def handle_timeout(data: dict, user_id: str = Depends(get_current_user_id), db: 
 
         move_count = db.query(models.Move).filter(models.Move.game_id == game_uuid).count()
 
-        # Ha az idő lejár, de még nem volt meg a 2. lépés
         if move_count <= 2:
             game.status = models.GameStatus.aborted
-            db.commit()
-            return {
-                "status": "aborted",
-                "reason": "Game Aborted"
-            }
-
-        # Időlejárás miatti győzelem (a vesztes szín ellenkezője nyer)
-        winner = "Black" if lost_color == "white" else "White"
-        game.status = models.GameStatus.finished # Vagy létrehozhatsz models.GameStatus.timeout-ot
+            reason = "Game Aborted"
+        else:
+            winner = "Black" if lost_color == "white" else "White"
+            game.status = models.GameStatus.finished 
+            reason = f"{winner} wins on time"
+            
         db.commit()
 
-        return {
-            "status": "finished",
-            "reason": f"{winner} wins on time"
-        }
+        await sio.emit("game_over", {
+            "game_id": str(game_uuid),
+            "status": game.status.value,
+            "reason": reason
+        }, room=str(game_uuid))
+
+        return {"status": game.status.value, "reason": reason}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 @router.post("/offer-draw")
-def offer_draw(data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    game_uuid = uuid.UUID(data.get("game_id"))
-    game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
-    if game:
-        game.status = models.GameStatus.draw
-        db.commit()
-        return {"status": "draw", "reason": "Draw by agreement"}
-    return {"status": "not_found"}
+async def offer_draw(request: Request, data: dict, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    try:
+        sio = get_sio(request)
+        game_uuid = uuid.UUID(data.get("game_id"))
+        game = db.query(models.Game).filter(models.Game.id == game_uuid).first()
+        if game:
+            game.status = models.GameStatus.draw
+            reason = "Draw by agreement"
+            db.commit()
+            
+            await sio.emit("game_over", {
+                "game_id": str(game_uuid),
+                "status": "draw",
+                "reason": reason
+            }, room=str(game_uuid))
+            
+            return {"status": "draw", "reason": reason}
+        return {"status": "not_found"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/get-latest-review-game")
 def get_latest_review_game(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    # Megkeressük a legutolsó játékot
-    # Opcionális: .filter(models.Game.is_analyzed == False) ha adsz ilyen oszlopot a DB-hez
     latest_game = db.query(models.Game)\
         .filter((models.Game.white_player_id == user_id) | (models.Game.black_player_id == user_id))\
         .order_by(models.Game.created_at.desc())\
@@ -815,7 +850,6 @@ def get_latest_review_game(user_id: str = Depends(get_current_user_id), db: Sess
     if not latest_game:
         return None
 
-    # Megkeressük az utolsó lépést, hogy megkapjuk a záró állást (FEN)
     last_move = db.query(models.Move)\
         .filter(models.Move.game_id == latest_game.id)\
         .order_by(models.Move.move_number.desc())\
@@ -825,7 +859,7 @@ def get_latest_review_game(user_id: str = Depends(get_current_user_id), db: Sess
         "game_id": str(latest_game.id),
         "opponent": latest_game.bot_id or "Opponent",
         "last_fen": last_move.fen_after if last_move else "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        "is_analyzed": False # Itt majd ellenőrizheted, hogy vannak-e Move.accuracy_label-ek a DB-ben
+        "is_analyzed": False 
     }
 
 @router.get("/user-games/{username}")
@@ -841,7 +875,6 @@ def get_user_games(username: str, offset: int = 0, limit: int = 10, db: Session 
         .limit(limit)\
         .all()
     
-    # Itt visszaküldjük a játékokat és az összesített számot is
     total_count = db.query(models.Game).filter((models.Game.white_player_id == user.id) | (models.Game.black_player_id == user.id)).count()
     
     return {"games": games, "total": total_count}

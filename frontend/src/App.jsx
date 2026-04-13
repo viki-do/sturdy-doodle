@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -9,11 +9,24 @@ import HomePage from './pages/HomePage';
 import GameArchive from './pages/GameArchive';
 import AnalyzeBoard from './components/AnalyzeBoard';
 import PlaySelectionPanel from './components/PlaySelectionPanel';
-import BotSelectionOrGame from './components/BotSelectionOrGame'; // Ezt a komponenst létre kell hoznod
+import BotSelectionOrGame from './components/BotSelectionOrGame';
+
+import { useChess } from './context/ChessContext';
 
 const App = () => {
     const token = localStorage.getItem('chessToken');
     const isAuthenticated = !!token;
+
+    //A központi Context-ből kérjük el az inicializálót
+    const { initializeGame } = useChess();
+
+    // Automatikus inicializálás az oldal betöltésekor
+    useEffect(() => {
+        if (isAuthenticated) {
+            console.log("App: Felhasználó hitelesítve, játék inicializálása...");
+            initializeGame();
+        }
+    }, [isAuthenticated, initializeGame]);
 
     return (
         <Router>

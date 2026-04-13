@@ -31,7 +31,7 @@ const HomePage = () => {
     }, []);
 
     return (
-    <div className="flex flex-col p-8 bg-[#1e1e1e] min-h-screen font-sans text-[#bab9b8]">
+    <div className="flex flex-col px-10 bg-[#1e1e1e] min-h-screen font-sans text-[#bab9b8]">
         
         {/* --- 1. FELHASZNÁLÓI FEJLÉC --- */}
         <div className="flex items-center gap-3 mb-10">

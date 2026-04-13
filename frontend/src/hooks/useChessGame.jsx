@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Chess } from 'chess.js';
+// JAVÍTÁS: Socket importálása (feltételezve, hogy a src/socket.js-ben van)
+import { socket } from '../socket';
 
 const parseTimeControl = (timeStr) => {
     if (!timeStr || timeStr === "No Timer") return { base: null, inc: 0 };
@@ -46,21 +48,17 @@ export const useChessGame = () => {
     const [isFlipped, setIsFlipped] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
         audio.play().catch(err => console.log(`Audio error: ${soundName}`));
     }, []);
-
 
     const getSquareName = useCallback((row, col) => {
         const filesArr = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
         return `${filesArr[col]}${8 - row}`;
     }, []);
 
-
     const [lastTimeControl, setLastTimeControl] = useState("No Timer");
-
 
     const renderNotation = useCallback((text) => {
         if (!text || text === "start") return "";
@@ -77,61 +75,52 @@ export const useChessGame = () => {
         return text;
     }, []);
 
-
     const fetchGameState = useCallback(async (id) => {
-    if (!id || id === "null" || !token) return;
-    try {
-        const res = await axios.get(`${API_BASE}/game/${id}/history`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-
-        if (res.data.history) {
-            const serverHistory = res.data.history;
-
-            // --- KRITIKUS JAVÍTÁS: Szín szinkronizálása ---
-            // Beállítjuk a tábla irányát a szerver válasza alapján (ha fekete, flippelünk)
-            if (res.data.player_color) {
-                setIsFlipped(res.data.player_color === 'black');
-            }
-
-            // 1. History frissítése
-            setHistory(prevHistory => {
-                if (prevHistory.length === 0) return serverHistory;
-                return serverHistory.map((serverMove, index) => {
-                    const localMove = prevHistory[index];
-                    if (localMove && localMove.m === serverMove.m) {
-                        return { ...serverMove, t: localMove.t };
-                    }
-                    return serverMove;
-                });
+        if (!id || id === "null" || !token) return;
+        try {
+            const res = await axios.get(`${API_BASE}/game/${id}/history`, {
+                headers: { Authorization: `Bearer ${token}` }
             });
 
-            // 2. Utolsó lépés adatai
-            const latestMove = serverHistory[serverHistory.length - 1];
+            if (res.data.history) {
+                const serverHistory = res.data.history;
 
-            // 3. Tábla vizuális beállítása
-            setFen(latestMove.fen);
-            if (latestMove.from && latestMove.to) {
-                setLastMove({ from: latestMove.from, to: latestMove.to });
+                if (res.data.player_color) {
+                    setIsFlipped(res.data.player_color === 'black');
+                }
+
+                setHistory(prevHistory => {
+                    if (prevHistory.length === 0) return serverHistory;
+                    return serverHistory.map((serverMove, index) => {
+                        const localMove = prevHistory[index];
+                        if (localMove && localMove.m === serverMove.m) {
+                            return { ...serverMove, t: localMove.t };
+                        }
+                        return serverMove;
+                    });
+                });
+
+                const latestMove = serverHistory[serverHistory.length - 1];
+                setFen(latestMove.fen);
+                if (latestMove.from && latestMove.to) {
+                    setLastMove({ from: latestMove.from, to: latestMove.to });
+                }
+
+                const nextTurnColor = latestMove.fen.split(' ')[1]; 
+                setActiveTimeColor(nextTurnColor);
+                
+                const moveCount = serverHistory.filter(m => m.m !== "start").length;
+                lastPlayedMoveNum.current = moveCount;
+
+                if (res.data.status) setStatus(res.data.status);
+                if (res.data.opening) setOpening(res.data.opening);
+
+                return res.data; 
             }
-
-            // 4. Óra és kör szinkron
-            const nextTurnColor = latestMove.fen.split(' ')[1]; 
-            setActiveTimeColor(nextTurnColor);
-            
-            const moveCount = serverHistory.filter(m => m.m !== "start").length;
-            lastPlayedMoveNum.current = moveCount;
-
-            if (res.data.status) setStatus(res.data.status);
-            if (res.data.opening) setOpening(res.data.opening);
-
-            // Visszaadjuk az adatokat, hogy a hívó fél (pl. GameBoard) is lássa
-            return res.data; 
+        } catch (err) { 
+            console.error("Hiba a játék betöltésekor:", err); 
         }
-    } catch (err) { 
-        console.error("Hiba a játék betöltésekor:", err); 
-    }
-}, [token, API_BASE, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);;
+    }, [token, API_BASE, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);
 
 
     const resetGame = useCallback(() => {
@@ -145,8 +134,9 @@ export const useChessGame = () => {
         setViewIndex(-1);
         setActiveTimeColor(null);
         lastPlayedMoveNum.current = 0;
-    }, []);
-
+        // JAVÍTÁS: Socket lekapcsolása resetkor
+        socket.emit("leave_game", { game_id: gameId });
+    }, [gameId]);
 
     const setSpectatorMode = useCallback(() => {
         setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -157,142 +147,148 @@ export const useChessGame = () => {
         setReason("");
     },[]);
 
-
     const startNewGame = useCallback(async (bot, color = 'white', timeControl) => {
-
-    setGameId(null);
-    setStatus("");
-    setHistory([]);
-    // 1. BOT ADATOK VALIDÁLÁSA ÉS MENTÉSE
-    if (bot && typeof bot === 'object' && bot.elo) {
-        lastBotRef.current = bot;
-    }
-    const currentBot = (bot && typeof bot === 'object') ? bot : lastBotRef.current;
-
-    // 2. IDŐZÍTÉS ÉS UI RESET
-    const finalTimeControl = timeControl || lastTimeControl || "No Timer";
-    const config = parseTimeControl(finalTimeControl);
-    const initialTime = config.base || 600;
-
-    whiteWarnedRef.current = false;
-    blackWarnedRef.current = false;
-    setActiveTimeColor(null);
-    setLastMove({ from: null, to: null });
-    setLastTimeControl(finalTimeControl);
-    setOpening(null);
-    setHistory([{ m: "start", wTime: initialTime, bTime: initialTime, num: 0 }]);
-    setReason("");
-    setStatus("ongoing");
-    setViewIndex(-1);
-    setWhiteTime(initialTime);
-    setBlackTime(initialTime);
-    setIncrement(config.inc || 0);
-
-    try {
-        // 3. BACKEND HÍVÁS
-        const res = await axios.post(`${API_BASE}/create-game`,
-            {
-                color: color,
-                bot_elo: currentBot.elo,
-                bot_id: currentBot.id,
-                bot_style: currentBot.style || "mix",
-                time_category: initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid",
-                base_time: initialTime,
-                time_control: finalTimeControl
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        const { game_id: newId, player_color: assignedColor, fen: initialFen } = res.data;
-
-        // --- KRITIKUS JAVÍTÁS: Szín szinkronizálása a Hook-on belül ---
-        setIsFlipped(assignedColor === 'black');
-
-        localStorage.setItem('chessGameId', newId);
-        setGameId(newId);
-        setFen(initialFen);
-        setSelectedSquare(null);
-        setValidMoves([]);
-
-        // 4. LÉPÉSSZÁMLÁLÓ ÉS BOT ELSŐ LÉPÉSÉNEK DETEKTÁLÁSA
-        const isBotMoved = initialFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-        if (isBotMoved) {
-            lastPlayedMoveNum.current = 1;
-            setActiveTimeColor('b'); // Bot (fehér) lépett, jön a sötét (játékos)
-
-            const historyRes = await axios.get(`${API_BASE}/game/${newId}/history`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
-            if (historyRes.data.history) {
-                const serverHistory = historyRes.data.history;
-                setHistory(serverHistory);
-                const firstMove = serverHistory.find(m => m.m !== "start");
-                if (firstMove && firstMove.from && firstMove.to) {
-                    setLastMove({ from: firstMove.from, to: firstMove.to });
-                }
-            }
-        } else {
-            lastPlayedMoveNum.current = 0;
-            setActiveTimeColor('w'); // Sima kezdés (fehér jön)
-            setLastMove({ from: null, to: null });
+        setGameId(null);
+        setStatus("");
+        setHistory([]);
+        if (bot && typeof bot === 'object' && bot.elo) {
+            lastBotRef.current = bot;
         }
+        const currentBot = (bot && typeof bot === 'object') ? bot : lastBotRef.current;
 
-        if (!isBotMoved) {
-            await fetchGameState(newId);
-        }
+        const finalTimeControl = timeControl || lastTimeControl || "No Timer";
+        const config = parseTimeControl(finalTimeControl);
+        const initialTime = config.base || 600;
 
-        playSound('game-start');
-        turnStartTimeRef.current = Date.now();
-
-        return assignedColor;
-    } catch (err) {
-        console.error("Hiba az új játék indításakor:", err);
+        whiteWarnedRef.current = false;
+        blackWarnedRef.current = false;
+        setActiveTimeColor(null);
+        setLastMove({ from: null, to: null });
+        setLastTimeControl(finalTimeControl);
         setOpening(null);
-        // Hiba esetén is próbáljuk beállítani a flippet a kért szín alapján
-        setIsFlipped(color === 'black');
-        return color === 'black' ? 'black' : 'white';
-    }
-}, [token, API_BASE, playSound, fetchGameState, parseTimeControl, lastTimeControl, lastBotRef, setIsFlipped]); 
+        setHistory([{ m: "start", wTime: initialTime, bTime: initialTime, num: 0 }]);
+        setReason("");
+        setStatus("ongoing");
+        setViewIndex(-1);
+        setWhiteTime(initialTime);
+        setBlackTime(initialTime);
+        setIncrement(config.inc || 0);
+
+        try {
+            const res = await axios.post(`${API_BASE}/create-game`,
+                {
+                    color: color,
+                    bot_elo: currentBot.elo,
+                    bot_id: currentBot.id,
+                    bot_style: currentBot.style || "mix",
+                    time_category: initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid",
+                    base_time: initialTime,
+                    time_control: finalTimeControl
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            const { game_id: newId, player_color: assignedColor, fen: initialFen } = res.data;
+
+            setIsFlipped(assignedColor === 'black');
+            localStorage.setItem('chessGameId', newId);
+            setGameId(newId);
+            setFen(initialFen);
+            setSelectedSquare(null);
+            setValidMoves([]);
+
+            // JAVÍTÁS: Socket csatlakozás és szobába lépés az új játéknál
+            socket.connect();
+            socket.emit("join_game", { game_id: newId });
+
+            const isBotMoved = initialFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+            if (isBotMoved) {
+                lastPlayedMoveNum.current = 1;
+                setActiveTimeColor('b'); 
+
+                const historyRes = await axios.get(`${API_BASE}/game/${newId}/history`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                if (historyRes.data.history) {
+                    const serverHistory = historyRes.data.history;
+                    setHistory(serverHistory);
+                    const firstMove = serverHistory.find(m => m.m !== "start");
+                    if (firstMove && firstMove.from && firstMove.to) {
+                        setLastMove({ from: firstMove.from, to: firstMove.to });
+                    }
+                }
+            } else {
+                lastPlayedMoveNum.current = 0;
+                setActiveTimeColor('w'); 
+                setLastMove({ from: null, to: null });
+            }
+
+            if (!isBotMoved) {
+                await fetchGameState(newId);
+            }
+
+            playSound('game-start');
+            turnStartTimeRef.current = Date.now();
+
+            return assignedColor;
+        } catch (err) {
+            console.error("Hiba az új játék indításakor:", err);
+            setOpening(null);
+            setIsFlipped(color === 'black');
+            return color === 'black' ? 'black' : 'white';
+        }
+    }, [token, API_BASE, playSound, fetchGameState, lastTimeControl, lastBotRef, setIsFlipped]);
 
 
 const initializeGame = useCallback(async () => {
-    console.log("HOOK: initializeGame elindult");
-    if (!token) {
-        console.log("HOOK: Nincs token, leállás");
-        setIsLoading(false);
-        return;
-    }
-    setIsLoading(true);
-    try {
-        const res = await axios.get(`${API_BASE}/get-active-game`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        console.log("HOOK: initializeGame elindult");
+        if (!token) {
+            console.log("HOOK: Nincs token, leállás");
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const res = await axios.get(`${API_BASE}/get-active-game`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
-        console.log("HOOK: API válasz érkezett:", res.data);
+            console.log("HOOK: API válasz érkezett:", res.data);
 
-        if (res.data.game_id) { // Kivettük a status === "ongoing" kényszert
-    console.log("HOOK: Aktív meccs találva, ID:", res.data.game_id);
-    const newId = res.data.game_id;
-    
-    setGameId(newId);
-    setStatus("ongoing"); // Manuálisan beállítjuk, ha már megjött az ID
-    
-    // Töltsük be a bábukat és az előzményeket
-    await fetchGameState(newId);
-} else {
-    console.log("HOOK: Tényleg nincs játék a szerveren.");
-    setGameId(null);
-}
-    } catch (e) {
-        console.error("HOOK: Hiba az inicializálás alatt:", e);
-        setGameId(null);
-    } finally {
-        console.log("HOOK: isLoading -> false");
-        setIsLoading(false);
-    }
-}, [token, API_BASE, fetchGameState]);
+            if (res.data.game_id) {
+                console.log("HOOK: Aktív meccs találva, ID:", res.data.game_id);
+                const newId = res.data.game_id;
+                
+                setGameId(newId);
+                setStatus("ongoing");
+                
+                // JAVÍTÁS: Socket csatlakozás és szobába lépés F5 után is
+                socket.on("connect", () => {
+                    console.log("HOOK: Socket csatlakozva, szobába lépés...");
+                    socket.emit("join_game", { game_id: newId });
+                });
+
+                // Ha már csatlakozva van (pl. oldalváltáskor), akkor azonnal küldjük
+                if (socket.connected) {
+                    socket.emit("join_game", { game_id: newId });
+                }
+                socket.emit("join_game", { game_id: newId });
+
+                await fetchGameState(newId);
+            } else {
+                console.log("HOOK: Tényleg nincs játék a szerveren.");
+                setGameId(null);
+            }
+        } catch (e) {
+            console.error("HOOK: Hiba az inicializálás alatt:", e);
+            setGameId(null);
+        } finally {
+            console.log("HOOK: isLoading -> false");
+            setIsLoading(false);
+        }
+    }, [token, API_BASE, fetchGameState]);
 
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
@@ -313,7 +309,6 @@ const initializeGame = useCallback(async () => {
         }
     }, [history]);
 
-
     const executeMove = async (from, to, promotion = null) => {
         const chess = new Chess(fen);
         const piece = chess.get(from);
@@ -324,6 +319,7 @@ const initializeGame = useCallback(async () => {
         }
         const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
         if (!moveAttempt) return;
+
         const now = Date.now();
         const elapsed = (now - turnStartTimeRef.current) / 1000;
         const isWhiteTurn = activeTimeColor === 'w';
@@ -331,6 +327,7 @@ const initializeGame = useCallback(async () => {
         const currentB = blackTime;
         const saveWhite = isWhiteTurn ? currentW : whiteTime;
         const saveBlack = !isWhiteTurn ? currentB : blackTime;
+
         const myMoveForHistory = {
             m: moveAttempt.san,
             from, to,
@@ -340,7 +337,9 @@ const initializeGame = useCallback(async () => {
             wTime: saveWhite,
             bTime: saveBlack
         };
+
         setHistory(prev => [...prev, myMoveForHistory]);
+
         if (isWhiteTurn) {
             setWhiteTime(prev => prev + increment);
             setActiveTimeColor('b');
@@ -348,6 +347,7 @@ const initializeGame = useCallback(async () => {
             setBlackTime(prev => prev + increment);
             setActiveTimeColor('w');
         }
+
         turnStartTimeRef.current = Date.now();
         setPendingPromotion(null);
         setFen(chess.fen());
@@ -356,8 +356,8 @@ const initializeGame = useCallback(async () => {
         setValidMoves([]);
         setIsDragging(false);
         lastPlayedMoveNum.current += 1;
-        const moveNumAfterMyMove = lastPlayedMoveNum.current;
 
+        // Hangok lejátszása a saját lépés után
         setTimeout(() => {
             if (chess.isCheckmate()) playSound('checkmate');
             else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
@@ -367,146 +367,102 @@ const initializeGame = useCallback(async () => {
             else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
             else playSound('move');
         }, 10);
+
         try {
+            // Elküldjük a lépést a szervernek. 
+            // A bot válaszát NEM itt kezeljük, hanem a WebSocketen keresztül érkezik majd meg!
             const res = await axios.post(`${API_BASE}/move`,
                 { game_id: gameId, move: `${from}${to}${promotion || ""}` },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
+
             if (res.data.is_game_over) {
                 setStatus(res.data.status);
                 setReason(res.data.reason);
                 setActiveTimeColor(null);
+                // Ha nincs bot lépés (mert mi mattoltunk), törölhetjük az ID-t
                 if (!res.data.bot_move) {
                     localStorage.removeItem('chessGameId');
-                    return;
                 }
             }
-            const bot = res.data.bot_move;
-            if (bot && bot.from && bot.to) {
-                const botThinkingDelay = Math.random() * (2.8 - 1.5) + 1.5;
-                setTimeout(() => {
-                    if (lastPlayedMoveNum.current > moveNumAfterMyMove) {
-                        console.log("Bot move already handled by polling.");
-                        return;
-                    }
-                    const botSnapW = whiteTime;
-                    const botSnapB = blackTime;
-                    const isBotWhite = res.data.new_fen.split(' ')[1] === 'b';
-                    const botMoveEntry = {
-                        m: bot.san,
-                        from: bot.from,
-                        to: bot.to,
-                        fen: res.data.new_fen,
-                        t: parseFloat(((Date.now() - turnStartTimeRef.current) / 1000).toFixed(1)),
-                        num: lastPlayedMoveNum.current + 1,
-                        wTime: botSnapW,
-                        bTime: botSnapB
-                    };
-                    setHistory(prev => [...prev, botMoveEntry]);
-                    if (isBotWhite) setWhiteTime(prev => prev + increment);
-                    else setBlackTime(prev => prev + increment);
-                    const nextColor = res.data.new_fen.split(' ')[1];
-                    setActiveTimeColor(nextColor);
-                    turnStartTimeRef.current = Date.now();
-                    setFen(res.data.new_fen);
-                    setLastMove({ from: bot.from, to: bot.to });
-                    lastPlayedMoveNum.current += 1;
-                    if (res.data.status) setStatus(res.data.status);
-                    if (res.data.reason) setReason(res.data.reason);
-                    if (res.data.opening) setOpening(res.data.opening);
-                    if (res.data.is_game_over) {
-                        setActiveTimeColor(null);
-                        localStorage.removeItem('chessGameId');
-                    }
-                    const isCheckmateStatus = res.data.status === "checkmate";
-                    if (isCheckmateStatus) playSound('checkmate');
-                    else if (bot.san?.includes('=')) playSound('promote');
-                    else if (bot.san?.includes('+')) playSound('move-check');
-                    else if (bot.san?.includes('O-O')) playSound('castle');
-                    else if (bot.san?.includes('x')) playSound('capture');
-                    else playSound('move');
-                }, botThinkingDelay * 1000);
-            }
+            
+            // JAVÍTÁS: A bot_move kezelést kivettük innen, mert a Socket.io-n érkezik!
+            
         } catch (err) {
             console.error("Move error:", err);
         }
     };
 
-
 const handleMouseDown = (e, row, col) => {
-    // 1. Koordináták azonnal
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        // 1. Koordináták azonnal
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-    if (status !== "ongoing" || viewIndex !== -1 || !gameId) return;
+        if (status !== "ongoing" || viewIndex !== -1 || !gameId) return;
 
-    const square = getSquareName(row, col);
-    const chess = new Chess(fen);
-    const piece = chess.get(square);
+        const square = getSquareName(row, col);
+        const chess = new Chess(fen);
+        const piece = chess.get(square);
 
-    // Click-Click kezelés
-    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-        executeMove(selectedSquare, square);
-        return;
-    }
+        // Click-Click kezelés
+        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
+            executeMove(selectedSquare, square);
+            return;
+        }
 
-    const myColor = isFlipped ? 'b' : 'w';
+        const myColor = isFlipped ? 'b' : 'w';
 
-    if (piece && piece.color === myColor && activeTimeColor === myColor) {
-        // --- KRITIKUS: Szinkron state frissítés ---
-        setMousePos({ x: clientX, y: clientY });
-        setSelectedSquare(square);
-        setHoverSquare(square);
-        setIsDragging(true); // Ez az, ami "felemeli" a bábut
+        if (piece && piece.color === myColor && activeTimeColor === myColor) {
+            // --- KRITIKUS: Szinkron state frissítés ---
+            setMousePos({ x: clientX, y: clientY });
+            setSelectedSquare(square);
+            setHoverSquare(square);
+            setIsDragging(true); // Ez az, ami "felemeli" a bábut
 
-        // A backend kérést tedd egy külön szálra, ne várj rá (nincs await!)
-        axios.post(`${API_BASE}/get-valid-moves`, { game_id: gameId, square: square }, { headers: { Authorization: `Bearer ${token}` } })
-            .then(res => setValidMoves(res.data.valid_moves || []))
-            .catch(() => setValidMoves([]));
+            // A backend kérést tedd egy külön szálra, ne várj rá (nincs await!)
+            axios.post(`${API_BASE}/get-valid-moves`, { game_id: gameId, square: square }, { headers: { Authorization: `Bearer ${token}` } })
+                .then(res => setValidMoves(res.data.valid_moves || []))
+                .catch(() => setValidMoves([]));
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDragOffset({ 
-            x: clientX - (rect.left + rect.width / 2), 
-            y: clientY - (rect.top + rect.height / 2) 
-        });
-    }
-};
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDragOffset({ 
+                x: clientX - (rect.left + rect.width / 2), 
+                y: clientY - (rect.top + rect.height / 2) 
+            });
+        }
+    };
 
- const handleMouseUp = async () => {
-    if (!isDragging || !selectedSquare) return;
+    const handleMouseUp = async () => {
+        if (!isDragging || !selectedSquare) return;
 
-    const from = selectedSquare;
-    const target = hoverSquare; // A useEffect által folyamatosan frissített mező
-    
-    setIsDragging(false);
+        const from = selectedSquare;
+        const target = hoverSquare; 
+        
+        setIsDragging(false);
 
-    // Ha nincs cél, vagy ugyanaz a mező
-    if (!target || target === from) {
+        // Ha nincs cél, vagy ugyanaz a mező
+        if (!target || target === from) {
+            setHoverSquare(null);
+            return;
+        }
+
+        // HELYI SAKKMOTOR ELLENŐRZÉSE
+        const chess = new Chess(fen);
+        const moves = chess.moves({ square: from, verbose: true });
+        const isValidMove = moves.some(m => m.to === target);
+
+        if (isValidMove) {
+            await executeMove(from, target);
+            setSelectedSquare(null);
+            setValidMoves([]);
+        } else {
+            playSound('illegal');
+            setIsAlert(true);
+            setTimeout(() => setIsAlert(false), 400);
+        }
+        
         setHoverSquare(null);
-        // Ne töröljük a kijelölést, hátha csak rákattintott a bábura
-        return;
-    }
-
-    // HELYI SAKKMOTOR ELLENŐRZÉSE
-    const chess = new Chess(fen);
-    const moves = chess.moves({ square: from, verbose: true });
-    const isValidMove = moves.some(m => m.to === target);
-
-    if (isValidMove) {
-        // Ha szabályos, azonnal küldjük
-        await executeMove(from, target);
-        setSelectedSquare(null);
-        setValidMoves([]);
-    } else {
-        // Ha szabálytalan, visszaugrik
-        playSound('illegal');
-        setIsAlert(true);
-        setTimeout(() => setIsAlert(false), 400);
-        // Itt megtartjuk a kijelölést, mint a nagy sakkoldalakon
-    }
-    
-    setHoverSquare(null);
-};
+    };
 
     const handleResign = async () => {
         if (!window.confirm("Biztosan feladod vagy kilépsz?")) return;
@@ -520,16 +476,11 @@ const handleMouseDown = (e, row, col) => {
             if (res.data.status) {
                 setStatus(res.data.status);
                 setReason(res.data.reason);
-                if (res.data.status === "aborted") {
-                    playSound('move');
-                } else {
-                    playSound('game-end');
-                }
+                playSound(res.data.status === "aborted" ? 'move' : 'game-end');
                 localStorage.removeItem('chessGameId');
             }
         } catch (err) { console.error("Resign error:", err); }
     };
-
 
     const offerDraw = async () => {
         if (!window.confirm("Döntetlent ajánlasz?")) return;
@@ -550,58 +501,127 @@ const handleMouseDown = (e, row, col) => {
         }
     };
 
-    useEffect(() => {
-        let interval;
-        if (gameId && status === "ongoing") {
-            interval = setInterval(async () => {
-                if (!activeTimeColor || status !== "ongoing") {
-                    if (interval) clearInterval(interval);
-                    return;
-                }
-                try {
-                    const res = await axios.get(`${API_BASE}/game/${gameId}/history`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-                    if (res.data.history) {
-                        const serverHistory = res.data.history;
-                        const serverMoveCount = serverHistory.filter(m => m.m !== "start").length;
-                        if (serverMoveCount > lastPlayedMoveNum.current) {
-                            const latestMove = serverHistory[serverHistory.length - 1];
-                            setHistory(serverHistory);
-                            if (res.data.status) setStatus(res.data.status);
-                            if (res.data.reason) setReason(res.data.reason);
-                            const nextTurnColor = latestMove.fen.split(' ')[1];
-                            setActiveTimeColor(nextTurnColor);
-                            turnStartTimeRef.current = Date.now();
-                            if (viewIndex === -1 && activeTimeColor) {
-                                setFen(latestMove.fen);
-                                if (latestMove.from && latestMove.to) {
-                                    setLastMove({ from: latestMove.from, to: latestMove.to });
-                                }
-                                const m = latestMove.m;
-                                setTimeout(() => {
-                                    if (m.includes('#')) playSound('checkmate');
-                                    else if (m.includes('+')) playSound('move-check');
-                                    else if (m.includes('x')) playSound('capture');
-                                    else if (m.includes('O-O')) playSound('castle');
-                                    else playSound('move');
-                                }, 50);
-                            }
-                            lastPlayedMoveNum.current = serverMoveCount;
-                        }
-                    }
-                } catch (e) {
-                    console.error("Polling error:", e);
-                    if (e.response?.status === 404) clearInterval(interval);
-                }
-            }, 3000);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [gameId, status, activeTimeColor, token, API_BASE, playSound, viewIndex]);
+    // --- ÚJ SOCKET.IO EFFECT (Kiváltja a pollingot) ---
+useEffect(() => {
+    if (!gameId || !socket) {
+        console.log("WS EFFECT: Hiányzó gameId vagy socket példány, várakozás...");
+        return;
+    }
 
-    
+    console.log("WS EFFECT: Inicializálás a következő játékhoz:", gameId);
+
+    // Szobába lépés függvénye
+    const joinRoom = () => {
+        console.log("WS: 'join_game' küldése a szobához:", gameId);
+        socket.emit("join_game", { game_id: gameId });
+    };
+
+    // Ha már él a kapcsolat, lépjünk be azonnal
+    if (socket.connected) {
+        joinRoom();
+    }
+
+    // Eseménykezelők definiálása
+    const onConnect = () => {
+        console.log("WS: Socket csatlakozva (ID: " + socket.id + ")");
+        joinRoom();
+    };
+
+    const onDisconnect = (reason) => {
+        console.warn("WS: Socket lecsatlakozott! Indok:", reason);
+    };
+
+    const handleBotMove = (data) => {
+        console.log("WS: 'bot_moved' esemény nyers adatai:", data);
+        
+        // UUID típusbiztonsági ellenőrzés
+        if (String(data.game_id) !== String(gameId)) {
+            console.warn(`WS: Rossz játék ID! Érkezett: ${data.game_id}, Aktuális: ${gameId}`);
+            return;
+        }
+
+        console.log("%cWS: Bot lépése sikeresen feldolgozva!", "color: green; font-weight: bold;");
+
+        const botMove = data.move;
+        const nextTurnColor = data.fen.split(' ')[1];
+        
+        // JAVÍTÁS: A szerver által küldött pontos gondolkodási időt használjuk
+        // Ha valamiért nem jönne meg (régi backend), marad a kalkulált fallback
+        const serverThinkTime = data.thinking_time !== undefined ? 
+            parseFloat(data.thinking_time) : 
+            parseFloat(((Date.now() - turnStartTimeRef.current) / 1000).toFixed(1));
+
+        // Állapotfrissítések
+        setHistory(prev => {
+            // Ellenőrizzük, hogy ez a FEN véletlenül nincs-e már benne
+            if (prev.some(m => m.fen === data.fen)) return prev;
+
+            const botMoveEntry = {
+                m: botMove.san,
+                from: botMove.from,
+                to: botMove.to,
+                fen: data.fen,
+                t: serverThinkTime, // A szerver által generált random idő (1-4s)
+                num: prev.length,   // Sorszám a lista hossza alapján
+                wTime: whiteTime, 
+                bTime: blackTime
+            };
+            return [...prev, botMoveEntry];
+        });
+
+        setFen(data.fen);
+        setLastMove({ from: botMove.from, to: botMove.to });
+        setActiveTimeColor(nextTurnColor);
+        
+        // JAVÍTÁS: Itt nullázzuk a saját óránkat a következő lépéshez
+        turnStartTimeRef.current = Date.now();
+        lastPlayedMoveNum.current = lastPlayedMoveNum.current + 1;
+
+        // Hang lejátszása késleltetve (hogy a tábla frissülése után halljuk)
+        setTimeout(() => {
+            const san = botMove.san;
+            if (san.includes('#')) playSound('checkmate');
+            else if (san.includes('+')) playSound('move-check');
+            else if (san.includes('x')) playSound('capture');
+            else if (san.includes('=')) playSound('promote');
+            else if (san.includes('O-O')) playSound('castle');
+            else playSound('move');
+        }, 110);
+    };
+
+    const handleGameOver = (data) => {
+        if (String(data.game_id) !== String(gameId)) return;
+        console.log("%cWS: Játék vége üzenet érkezett!", "color: orange; font-weight: bold;", data);
+        
+        setStatus(data.status);
+        setReason(data.reason);
+        setActiveTimeColor(null);
+        localStorage.removeItem('chessGameId');
+        playSound('game-end');
+    };
+
+    // Események regisztrálása
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("bot_moved", handleBotMove);
+    socket.on("game_over", handleGameOver);
+
+    // Kényszerített csatlakozás, ha valamiért nem indult volna el
+    if (!socket.connected) {
+        socket.connect();
+    }
+
+    // Takarítás a hook leállásakor
+    return () => {
+        console.log("WS EFFECT: Takarítás...");
+        socket.off("connect", onConnect);
+        socket.off("disconnect", onDisconnect);
+        socket.off("bot_moved", handleBotMove);
+        socket.off("game_over", handleGameOver);
+    };
+
+}, [gameId, playSound]); // Az időzítőket (whiteTime, blackTime) szándékosan kihagyjuk!
+    // Óra effektus (Ref-ek nélkül, az eredeti logikád szerint)
     useEffect(() => {
         let timer;
         if (gameId && status === "ongoing" && activeTimeColor) {
@@ -637,7 +657,7 @@ const handleMouseDown = (e, row, col) => {
         return () => clearInterval(timer);
     }, [gameId, status, activeTimeColor, API_BASE, token, playSound]);
 
-
+    // Figyelmeztető hang effektus
     useEffect(() => {
         if (status !== "ongoing" || !activeTimeColor) return;
         if (whiteTime <= 10 && whiteTime > 0) {
@@ -658,8 +678,6 @@ const handleMouseDown = (e, row, col) => {
         }
     }, [whiteTime, blackTime, status, playSound]);
 
-  
-
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves,
         lastMove, setLastMove, history, setHistory, status, setStatus, isDragging, setIsDragging,
@@ -667,6 +685,7 @@ const handleMouseDown = (e, row, col) => {
         hoverSquare, setHoverSquare, getSquareName, fetchGameState, startNewGame, handleResign,
         executeMove, playSound, token, API_BASE, reason, setReason, pendingPromotion, setPendingPromotion,
         goToMove, handleMouseDown, handleMouseUp, renderNotation, offerDraw, resetGame, whiteTime, blackTime,
-        activeTimeColor, isFlipped, setIsFlipped,parseTimeControl,setBlackTime, setWhiteTime, lastTimeControl,
-        opening, setOpening, setSpectatorMode, isLoading, initializeGame };
+        activeTimeColor, isFlipped, setIsFlipped, parseTimeControl, setBlackTime, setWhiteTime, lastTimeControl,
+        opening, setOpening, setSpectatorMode, isLoading, initializeGame 
+    };
 };

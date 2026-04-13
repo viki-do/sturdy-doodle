@@ -21,29 +21,20 @@ const BotSelectionOrGame = () => {
 
     // --- DIAGNOSZTIKAI LOGOK ---
     useEffect(() => {
-        console.log("=== BotSelectionOrGame Render Log ===");
-        console.log("ID:", gameId);
-        console.log("Státusz:", status || "üres");
-        console.log("Töltés (isLoading):", isLoading);
-        console.log("UI Aktív (isGameActiveUI):", isGameActiveUI);
-        console.log("=====================================");
+        
     }, [gameId, status, isLoading, isGameActiveUI]);
 
     /**
      * 1. LÉPÉS: Várakozás
      */
     if (isLoading) {
-        console.log("PANEL: Még töltünk, üres képernyő.");
+       
         return <div className="flex-1 bg-[#262421]" />;
     }
 
-    /**
-     * 2. LÉPÉS: A döntés
-     * JAVÍTÁS: Ha van bármilyen érvényes gameId, akkor a MoveListPanel-t mutatjuk.
-     * Ez lehetővé teszi, hogy megnézd a lépéseket akkor is, ha a meccs "aborted" lett.
-     */
+   
     if (gameId && gameId !== "null") {
-        console.log(`PANEL: Játék észlelve (${status}), MoveListPanel megjelenítése.`);
+    
         return (
             <MoveListPanel 
                 {...context} 
