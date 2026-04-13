@@ -31,14 +31,14 @@ const Navbar = () => {
     const isActive = (path) => location.pathname.startsWith(path);
 
     return (
-        <aside className="w-35 lg:w-40 h-screen bg-[#262421] flex flex-col py-4 border-r border-[#3c3a37] sticky top-0 left-0 z-[1000]">
+        <aside className="w-36 lg:w-40 h-screen bg-[#262421] flex flex-col py-4 border-r border-[#3c3a37] sticky top-0 left-0 z-[1000]">
             {/* Logo */}
             <div
                 onClick={() => navigate('/home')}
                 className="flex flex-col items-center gap-1 mb-8 no-underline text-white group px-2 text-center cursor-pointer"
             >
                 <img
-                    src="/assets/pieces/white_pawn.png"
+                    src="/assets/logos/chess.png"
                     className="w-10 transition-transform group-hover:scale-110"
                     alt="logo"
                 />
@@ -57,16 +57,28 @@ const Navbar = () => {
                 >
                     <NavItem
                         to="/play"
-                        icon={<Gamepad2 size={24} />}
+                        icon={
+                            <img 
+                                src="/assets/logos/play.png" 
+                                alt="Bots" 
+                                className="w-5 h-5 object-contain" 
+                            />
+                        }
                         label="Play"
                         active={isActive('/play')}
                     />
 
                     {/* DROPDOWN MENU */}
                     {isPlayHovered && (
-                        <div className="absolute left-full top-0 ml-1 w-60 bg-[#171614] border border-[#3c3a37] rounded-r-lg shadow-2xl py-2 z-[2000] overflow-hidden">
+                        <div className="absolute left-full top-0 ml-1 w-72 bg-[#171614] border border-[#3c3a37] rounded-r-lg shadow-2xl py-2 z-[2000] overflow-hidden">
                             <DropdownItem 
-                                icon={<Users size={18} />} 
+                                icon={
+                                    <img 
+                                        src="/assets/logos/play.png" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                }
                                 label="Play Online" 
                                 onClick={() => navigate('/play')} 
                             />
@@ -91,19 +103,37 @@ const Navbar = () => {
 
                 <NavItem
                     to="/puzzles"
-                    icon={<Puzzle size={24} />}
+                    icon={
+                        <img 
+                            src="/assets/logos/puzzle.png" 
+                            alt="Bots" 
+                            className="w-5 h-5 object-contain" 
+                        />
+                    }
                     label="Puzzles"
                     active={isActive('/puzzles')}
                 />
                 <NavItem
                     to="/learn"
-                    icon={<GraduationCap size={24} />}
+                    icon={
+                        <img 
+                            src="/assets/logos/learn.png" 
+                            alt="Bots" 
+                            className="w-5 h-5 object-contain" 
+                        />
+                    }
                     label="Learn"
                     active={isActive('/learn')}
                 />
                 <NavItem
                     to="/analysis"
-                    icon={<Microscope size={24} />}
+                    icon={
+                        <img 
+                            src="/assets/moves/analysis.svg" 
+                            alt="Bots" 
+                            className="w-5 h-5 object-contain" 
+                        />
+                    }
                     label="Analysis"
                     active={isActive('/analysis')}
                 />

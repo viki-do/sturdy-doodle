@@ -11,18 +11,30 @@ const PlaySelectionPanel = () => {
     return (
         <div className="w-112.5 h-180 bg-[#262421] rounded-xl border border-chess-bg overflow-hidden flex flex-col font-sans">
             <div className="p-5 border-b border-[#1b1a18] bg-chess-panel-header flex items-center justify-center gap-3">
-                <img src="/assets/pieces/white_king.png" className="w-7 h-7" alt="king" />
+                <img src="/assets/logos/play.png" className="w-12 h-12" alt="king" />
                 <h2 className="text-2xl font-bold text-white">Play Chess</h2>
             </div>
 
             <div className="flex-1 p-4 flex flex-col gap-2 overflow-y-auto no-scrollbar bg-[#2b2926]">
                 <ModeButton 
-                    icon={<Zap size={28} className="text-yellow-400 fill-yellow-400" />}
+                    icon={
+                        <img 
+                            src="/assets/moves/time-blitz.svg" 
+                            alt="Blitz" 
+                            className="w-12 h-12 object-contain" 
+                        />
+                    }
                     title="Play Online"
                     desc="Play vs a person of similar skill"
                 />
                 <ModeButton 
-                    icon={<Monitor size={28} className="text-blue-400" />}
+                    icon={
+                        <img 
+                            src="/assets/moves/device-bot.svg" 
+                            alt="Bots" 
+                            className="w-12 h-12 object-contain" 
+                        />
+                    }
                     title="Play Bots"
                     desc="Challenge a bot from Easy to Master"
                     highlight={true}
@@ -30,12 +42,24 @@ const PlaySelectionPanel = () => {
                     onClick={handlePlayBots} 
                 />
                 <ModeButton 
-                    icon={<GraduationCap size={28} className="text-pink-400" />}
+                    icon={
+                        <img 
+                            src="/assets/logos/coachmagnus-icon.png" 
+                            alt="Coach" 
+                            className="w-12 h-12 object-contain" 
+                        />
+                    }
                     title="Play Coach"
                     desc="Learn as you play a game with Coach"
                 />
                 <ModeButton 
-                    icon={<Users size={28} className="text-orange-400" />}
+                    icon={
+                        <img 
+                            src="/assets/moves/hand-shake.svg" 
+                            alt="Friends" 
+                            className="w-12 h-12 object-contain" 
+                        />
+                    }
                     title="Play a Friend"
                     desc="Invite a friend to a game of chess"
                 />

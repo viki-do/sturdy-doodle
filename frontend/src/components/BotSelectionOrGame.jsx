@@ -16,7 +16,7 @@ const BotSelectionOrGame = () => {
         handleTimeChange, 
         handleSelectionColorChange, 
         setPreviewOpponent,
-        isGameActiveUI 
+        isGameActiveUI,
     } = context;
 
     // --- DIAGNOSZTIKAI LOGOK ---

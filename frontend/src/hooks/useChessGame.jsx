@@ -124,19 +124,27 @@ export const useChessGame = () => {
 
 
     const resetGame = useCallback(() => {
-        setGameId(null);
-        localStorage.removeItem('chessGameId');
-        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        setLastMove({ from: null, to: null });
-        setHistory([]);
-        setStatus("");
-        setReason("");
-        setViewIndex(-1);
-        setActiveTimeColor(null);
-        lastPlayedMoveNum.current = 0;
-        // JAVÍTÁS: Socket lekapcsolása resetkor
+    // 1. ELŐSZÖR szóljunk a szervernek, amíg még megvan az ID
+    if (gameId) {
         socket.emit("leave_game", { game_id: gameId });
-    }, [gameId]);
+    }
+
+    // 2. Töröljük az ID-t
+    setGameId(null);
+    localStorage.removeItem('chessGameId');
+
+    // 3. Állapotok alaphelyzetbe állítása
+    // Fontos: a sorrend itt is számít, hogy a komponensek ne higgyék azt, hogy lépés történt
+    setHistory([]);
+    setLastMove({ from: null, to: null });
+    setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    
+    setStatus("");
+    setReason("");
+    setViewIndex(-1);
+    setActiveTimeColor(null);
+    lastPlayedMoveNum.current = 0;
+}, [gameId]);
 
     const setSpectatorMode = useCallback(() => {
         setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -596,7 +604,7 @@ useEffect(() => {
         setStatus(data.status);
         setReason(data.reason);
         setActiveTimeColor(null);
-        localStorage.removeItem('chessGameId');
+        // localStorage.removeItem('chessGameId');
         playSound('game-end');
     };
 

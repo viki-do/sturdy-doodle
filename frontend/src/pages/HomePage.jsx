@@ -31,7 +31,7 @@ const HomePage = () => {
     }, []);
 
     return (
-    <div className="flex flex-col px-10 bg-[#1e1e1e] min-h-screen font-sans text-[#bab9b8]">
+    <div className="flex flex-col p-10 bg-[#2f2e2a] min-h-screen font-sans text-[#bab9b8]">
         
         {/* --- 1. FELHASZNÁLÓI FEJLÉC --- */}
         <div className="flex items-center gap-3 mb-10">
@@ -47,7 +47,7 @@ const HomePage = () => {
         <div className="flex flex-row gap-8 items-start mb-12">
             <div className="flex flex-col w-72">
                 <div className="flex items-center gap-4 mb-6 h-16">
-                    <span className="text-5xl">🔥</span>
+                    <span className="text-6xl">🔥</span>
                     <div className="flex flex-col">
                         <span className="text-xs uppercase font-black text-[#8b8987] tracking-wider leading-none mb-1">Streak</span>
                         <span className="text-xl font-black text-white leading-none">2 Day Streak</span>
@@ -63,7 +63,7 @@ const HomePage = () => {
 
             <div className="flex flex-col w-72">
                 <HeaderSection 
-                    icon={<img src="https://www.chess.com/bundles/web/images/color-icons/puzzles.svg" className="w-12 h-12" alt="" />}
+                    icon={<img src="https://www.chess.com/bundles/web/images/color-icons/puzzles.svg" className="w-16 h-16" alt="" />}
                     title="Puzzles" sub="200" extra="🔥 3"
                 />
                 <BoardCard label="Solve Puzzle" onClick={() => navigate('/puzzles')}>
@@ -73,7 +73,13 @@ const HomePage = () => {
 
             <div className="flex flex-col w-72">
                 <HeaderSection 
-                    icon={<div className="text-4xl text-blue-400"><i className="fas fa-graduation-cap"></i></div>}
+                    icon={
+                        <img 
+                            src="/assets/logos/learn.png" 
+                            alt="Learn" 
+                            className="w-16 h-16 object-contain" 
+                        />
+                    }
                     title="Next Lesson" sub="Using Your Knights"
                 />
                 <BoardCard label="Start Lesson" onClick={() => navigate('/learn')}>
@@ -83,7 +89,13 @@ const HomePage = () => {
 
             <div className="flex flex-col w-72">
                 <HeaderSection 
-                    icon={<div className="text-4xl text-[#81b64c]"><i className="fas fa-search-plus"></i></div>}
+                    icon={
+                        <img 
+                            src="/assets/moves/analysis.svg" 
+                            alt="Analysis" 
+                            className="w-16 h-16 object-contain" 
+                        />
+                    }
                     title="Game Review" 
                     sub={reviewGame ? `Review vs ${reviewGame.opponent}` : "No games to review"}
                 />
