@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
+import {ArchiveSelect } from '../components/component_helpers/PageHelpers';
 
 const GameArchive = () => {
     const { username } = useParams();
@@ -222,13 +223,5 @@ const GameArchive = () => {
     );
 };
 
-const ArchiveSelect = ({ value }) => (
-    <div className="relative group">
-        <div className="w-full bg-[#1e1e1e] border border-[#3c3a37] p-2.5 rounded text-sm text-[#bab9b8] flex justify-between items-center cursor-pointer hover:border-[#666] transition-colors">
-            <span className="font-medium">{value}</span>
-            <i className="fas fa-caret-down text-[#666]"></i>
-        </div>
-    </div>
-);
 
 export default GameArchive;

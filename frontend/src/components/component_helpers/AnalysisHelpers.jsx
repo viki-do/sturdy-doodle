@@ -1,0 +1,131 @@
+import React from 'react';
+import { ChevronRight } from 'lucide-react';
+import { moves as moveAssets } from '../../constants/review';
+
+export const AnalysisMenuItem = ({ icon, label }) => (
+    <div className="flex items-center justify-between p-3 hover:bg-[#312e2b] rounded-md cursor-pointer group transition-colors">
+        <div className="flex items-center gap-3">
+            <span className="text-[#bab9b8] group-hover:text-white">{icon}</span>
+            <span className="text-sm font-bold text-[#bab9b8] group-hover:text-white">{label}</span>
+        </div>
+        <ChevronRight size={18} className="text-[#5c5a57]" />
+    </div>
+);
+
+
+const EvalBox = ({ value }) => {
+    const isMate = String(value).startsWith('M');
+    const numericEval = parseFloat(value);
+    const isWhiteBetter = isMate ? !String(value).includes('-') : numericEval >= 0;
+    return (
+        <div className={`w-14 py-0.5 rounded text-[11px] font-black shrink-0 text-center shadow-sm ${isWhiteBetter ? "bg-white text-black" : "bg-[#121212] text-white border border-white/20"}`}>
+            {isMate ? value : (numericEval > 0 ? `+${numericEval.toFixed(2)}` : (numericEval === 0 ? "0.00" : numericEval.toFixed(2)))}
+        </div>
+    );
+};
+
+export const PieceNotation = ({ move, isBlack }) => {
+    if (!move || !move.m) return null;
+
+    // Kinyerjük az első karaktert (notációban: N, B, R, Q, K)
+    const firstChar = move.m[0];
+    
+    // Sakk notáció szabály: ha kisbetűvel kezdődik (pl. e4, d5), az gyalog.
+    // Ha nem nagybetű, vagy sáncolás (O-O), ne mutasson figurát.
+    const isPiece = /^[NBRQK]/.test(firstChar);
+
+    if (!isPiece) return null;
+
+    // Meghatározzuk a színt és a típust a fájlneveidhez
+    const color = isBlack ? 'black' : 'white';
+    const pieceMap = {
+        'N': 'knight',
+        'B': 'bishop',
+        'R': 'rook',
+        'Q': 'queen',
+        'K': 'king'
+    };
+
+    const pieceType = pieceMap[firstChar];
+
+    return (
+        <img 
+            src={`/assets/pieces/${color}_${pieceType}.png`} 
+            alt={firstChar}
+            className="w-[18px] h-[18px] mr-0.5 object-contain inline-block self-center opacity-95"
+            // Ha valamiért nem töltene be a kép, ne rontsa el az UI-t
+            onError={(e) => { e.target.style.display = 'none'; }}
+        />
+    );
+};
+
+export const EngineLineSpecial = ({ type, eval: ev, text, subtext, colorFn }) => {
+    const asset = moveAssets[type?.toLowerCase()];
+    const textColor = colorFn(type);
+    return (
+        <div className="flex items-center gap-2 p-1.5 rounded hover:bg-[#ffffff05] cursor-pointer group transition-all">
+            <EvalBox value={ev} />
+            <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                {asset?.src ? (
+                    <img src={asset.src} alt={type} className="w-full h-full object-contain animate-in zoom-in duration-300" />
+                ) : (
+                    <div className="w-full h-full bg-[#3c3a37] rounded flex items-center justify-center text-[10px]">★</div>
+                )}
+            </div>
+            <div className="flex flex-col min-w-0">
+                <span className={`text-xs font-bold leading-none ${textColor}`}>{text}</span>
+                <span className="text-[10px] text-[#8b8987] truncate opacity-80">{subtext}</span>
+            </div>
+        </div>
+    );
+};
+
+
+export const MoveItem = ({ move, isActive, onClick, isBlack }) => {
+    if (!move) return <div className="flex-1" />;
+    const asset = moveAssets[move.analysisLabel?.toLowerCase()];
+    
+    // Megnézzük, hogy figura-e (N, B, R, Q, K)
+    const hasPieceIcon = /^[NBRQK]/.test(move.m[0]);
+    // Ha van ikon, a maradék szöveget mutatjuk (pl. Nf3 -> f3), ha nincs, az egészet (pl. e4)
+    const displayNotation = hasPieceIcon ? move.m.substring(1) : move.m;
+
+    return (
+        <div className="flex items-center justify-start h-full">
+            <div 
+                onClick={onClick} 
+                className={`flex items-center h-[26px] px-1.5 rounded cursor-pointer transition-colors font-bold text-[14px] min-w-[60px] relative ${
+                    isActive ? 'bg-[#3c3a37] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'
+                }`}
+            >
+                <PieceNotation move={move} isBlack={isBlack} />
+                
+                <span>{displayNotation}</span>
+
+                {asset?.src && (
+                    <img src={asset.src} className="w-3.5 h-3.5 ml-1 animate-in fade-in duration-300" alt="" />
+                )}
+            </div>
+        </div>
+    );
+};
+
+export const TabItem = ({ icon, label, active }) => (
+    <div className={`flex-1 flex flex-col items-center py-2.5 cursor-pointer transition-colors border-b-2 ${active ? 'bg-[#262421] border-[#81b64c] text-white' : 'border-transparent text-[#8b8987] hover:bg-[#2b2a27]'}`}>
+        {icon}
+        <span className="text-[9px] font-bold mt-1 uppercase tracking-wider">{label}</span>
+    </div>
+);
+
+export const ControlBtn = ({ icon, onClick }) => (
+    <button onClick={onClick} className="flex-1 py-2 bg-[#312e2b] hover:bg-[#3d3a37] rounded flex items-center justify-center font-bold text-[#bab9b8] border-b-2 border-black/20 active:border-b-0 active:translate-y-[1px] transition-all">
+        {icon}
+    </button>
+);
+
+export const FooterAction = ({ icon, label, onClick }) => (
+    <div className="flex flex-col items-center justify-center gap-0.5 cursor-pointer group px-2" onClick={onClick}>
+        <div className="text-[#bab9b8] group-hover:text-white transition-colors">{icon}</div>
+        <span className="text-[9px] font-bold text-[#8b8987] group-hover:text-white uppercase">{label}</span>
+    </div>
+);

@@ -6,6 +6,10 @@ import AnalysisPanel from './AnalysisPanel';
 import { useChess } from '../context/ChessContext';
 import { Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { 
+    
+    SetUpPosition, GameCollections
+} from './icons/Icons';
 
 
 const getCapturedPieces = (fen) => {

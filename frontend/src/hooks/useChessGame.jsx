@@ -594,7 +594,7 @@ useEffect(() => {
             else if (san.includes('=')) playSound('promote');
             else if (san.includes('O-O')) playSound('castle');
             else playSound('move');
-        }, 110);
+        }, 100);
     };
 
     const handleGameOver = (data) => {
@@ -605,7 +605,7 @@ useEffect(() => {
         setReason(data.reason);
         setActiveTimeColor(null);
         // localStorage.removeItem('chessGameId');
-        playSound('game-end');
+        // playSound('game-end');
     };
 
     // Események regisztrálása
@@ -663,7 +663,7 @@ useEffect(() => {
             }, 50);
         }
         return () => clearInterval(timer);
-    }, [gameId, status, activeTimeColor, API_BASE, token, playSound]);
+    }, [gameId, status, activeTimeColor, API_BASE, token, playSound]); 
 
     // Figyelmeztető hang effektus
     useEffect(() => {
