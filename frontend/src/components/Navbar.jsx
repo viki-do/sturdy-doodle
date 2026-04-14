@@ -83,17 +83,35 @@ const Navbar = () => {
                                 onClick={() => navigate('/play')} 
                             />
                             <DropdownItem 
-                                icon={<Cpu size={18} />} 
+                                icon={
+                                    <img 
+                                        src="/assets/moves/device-bot.svg" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                } 
                                 label="Play Bots" 
                                 onClick={() => navigate('/play/bots')} 
                             />
                             <DropdownItem 
-                                icon={<Zap size={18} />} 
+                                icon={
+                                    <img 
+                                        src="/assets/logos/coachmagnus-icon.png" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                }
                                 label="Play Coach" 
                                 onClick={() => navigate('/analysis')} 
                             />
                             <DropdownItem 
-                                icon={<History size={18} />} 
+                                icon={
+                                    <img 
+                                        src="/assets/logos/board-archive.svg" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                }
                                 label="Game History" 
                                 onClick={() => navigate(`/member/${username}/games`)} 
                             />

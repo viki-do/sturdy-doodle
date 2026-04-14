@@ -46,6 +46,7 @@ def get_sio(request: Request):
     """Visszaadja a main.py-ban definiált Socket.io szervert"""
     return request.app.state.sio
 
+
 @router.post("/analyze-full-game/{game_id}")
 def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     game_uuid = uuid.UUID(game_id)
@@ -57,19 +58,19 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
     if not game or not moves:
         raise HTTPException(status_code=404, detail="Game or moves not found")
 
-    player_elo = 1200 
-
     engine = get_engine()
     board = chess.Board()
-    
+    coach = ChessCoachEngine()
     full_analysis = []
+    
+    # Statisztikák a pontossághoz
     phase_stats = {
         "opening": {"losses": [], "p_befores": [], "counts": {}},
         "middlegame": {"losses": [], "p_befores": [], "counts": {}},
         "endgame": {"losses": [], "p_befores": [], "counts": {}}
     }
     
-    prev_eval = 30 # Kezdő érték (+0.3)
+    prev_eval = 30 
     
     # 2. LÉPÉSRŐL LÉPÉSRE ELEMZÉS
     for m in moves:
@@ -77,55 +78,69 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
             continue
 
         current_phase = coach.get_game_phase(board)
+        is_white_turn = board.turn == chess.WHITE
         
+        # Opening Book ellenőrzés
         parts = board.fen().split()
         search_key = f"{parts[0]} {parts[1]}"
-        is_book = search_key in OPENING_BOOK
+        book_info = OPENING_BOOK.get(search_key)
+        is_book = book_info is not None
         
-        if is_book:
-            label = "book"
-            move_eval = prev_eval
-            loss = 0.0
-            best_move_san = m.notation
-            p_before = coach.get_win_chance(prev_eval if board.turn == chess.WHITE else -prev_eval)
-        else:
-            analysis = engine.analyse(board, chess.engine.Limit(depth=18), multipv=3)
-            
-            try:
-                player_move = board.parse_san(m.notation)
-            except:
-                player_move = board.parse_uci(m.notation)
+        try:
+            player_move = board.parse_san(m.notation)
+        except:
+            player_move = board.parse_uci(m.notation)
 
-            label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, player_elo)
+        # Multi-PV elemzés
+        analysis = engine.analyse(board, chess.engine.Limit(depth=20), multipv=3)
+        best_eval_info = analysis[0]["score"].white().score(mate_score=10000)
+        
+        # Címkézés
+        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, is_book=is_book)
+        
+        # Engine Lines összeállítása
+        engine_lines = []
+        for entry in analysis:
+            score_cp = entry["score"].white().score(mate_score=10000)
             
-            is_white = board.turn == chess.WHITE
-            best_eval = analysis[0]["score"].white().score(mate_score=10000)
+            # PV kinyerése biztonságosan
+            pv_moves = entry.get("pv", [])
             
-            p_before = coach.get_win_chance(prev_eval if is_white else -prev_eval)
-            wc_best = coach.get_win_chance(best_eval if is_white else -best_eval)
-            wc_actual = coach.get_win_chance(move_eval if is_white else -move_eval)
-            loss = max(0, wc_best - wc_actual)
-            best_move_san = board.san(analysis[0]["pv"][0])
+            engine_lines.append({
+                "eval": score_cp / 100.0 if abs(score_cp) < 5000 else f"M{int((10000-abs(score_cp))/100)}",
+                "raw_eval": score_cp,
+                # Itt a lényeg: 20 fél-lépés = 10 teljes lépés
+                "continuation": board.variation_san(pv_moves[:30]),
+                "pv_uci": [move.uci() for move in pv_moves[:30]]
+            })
+
+        # Accuracy számítás adatai
+        p_before = coach.get_win_chance(prev_eval if is_white_turn else -prev_eval)
+        wc_best = coach.get_win_chance(best_eval_info if is_white_turn else -best_eval_info)
+        wc_actual = coach.get_win_chance(move_eval if is_white_turn else -move_eval)
+        loss = max(0, wc_best - wc_actual)
 
         phase_stats[current_phase]["losses"].append(loss)
         phase_stats[current_phase]["p_befores"].append(p_before)
         phase_stats[current_phase]["counts"][label] = phase_stats[current_phase]["counts"].get(label, 0) + 1
 
+        # JSON elem hozzáadása
         full_analysis.append({
             "move_number": m.move_number,
             "notation": m.notation,
             "label": label,
+            "is_book": is_book,
             "eval": move_eval / 100.0 if abs(move_eval) < 5000 else f"M{int((10000-abs(move_eval))/100)}",
-            "best_move": best_move_san,
-            "phase": current_phase
+            "best_move": board.san(analysis[0]["pv"][0]),
+            "engine_lines": engine_lines,
+            "phase": current_phase,
+            "opening_name": book_info["name"] if is_book else None
         })
 
-        try:
-            board.push_san(m.notation)
-        except:
-            board.push_uci(m.notation)
+        board.push(player_move)
         prev_eval = move_eval
 
+    # 3. ÖSSZEGZÉS (Accuracy és Rating - Pontosan az eredeti logikáddal)
     summary = {}
     all_losses = []
     all_p_befores = []
@@ -138,6 +153,7 @@ def analyze_full_game(game_id: str, user_id: str = Depends(get_current_user_id),
             all_losses.extend(losses)
             all_p_befores.extend(p_befores)
             
+            # Ez a te eredeti rating logikád:
             rating = "Best" if acc > 97 else "Great" if acc > 90 else "Excellent" if acc > 80 else "Good" if acc > 70 else "Inaccurate"
             summary[phase] = {
                 "accuracy": acc,
@@ -220,33 +236,45 @@ def analyze_sandbox_move(data: dict):
     board = chess.Board(fen_before)
     engine = get_engine()
     
-    # Sandbox elemzés (depth 16)
-    analysis = engine.analyse(board, chess.engine.Limit(depth=16), multipv=3)
+    # --- KRITIKUS JAVÍTÁS: Használjuk a coach mélyelemzését ---
+    # Ez visszaadja a Multi-PV engine_lines-t is!
+    deep_res = coach.analyze_position_deep(board, engine, depth=20, multipv=3)
     
     try:
         player_move = board.parse_san(move_san)
         
-        # 1. Megnézzük mi történik a lépés után (a név miatt)
+        # Megnyitás ellenőrzés a lépés után
         temp_board = board.copy()
         temp_board.push(player_move)
-        
-        # 2. Itt hívjuk a már létező kereső függvényedet (find_opening_by_fen)
-        # Fontos: a neveknek egyezniük kell!
         opening_data = find_opening_by_fen(temp_board.fen())
         is_book = opening_data is not None
 
-        # 3. Osztályozás az is_book jelzővel
-        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, is_book=is_book)
+        # Osztályozás (átadjuk a nyers analízis listát a motorból)
+        label, move_eval = coach.classify_move(
+            board, 
+            player_move, 
+            deep_res["raw_analysis"], 
+            prev_eval, 
+            is_book=is_book
+        )
         
+        # Most már minden adatot visszaküldünk!
         return {
             "label": label,
             "eval": move_eval,
-            "best_move": board.san(analysis[0]["pv"][0]),
-            "opening": opening_data
+            "best_move": deep_res["best_move"],
+            "opening": opening_data,
+            "engine_lines": deep_res["engine_lines"] # <--- EZ HIÁNYZOTT!
         }
     except Exception as e:
         print(f"Sandbox hiba: {e}")
-        return {"label": "best", "eval": prev_eval, "best_move": "", "opening": None}
+        return {
+            "label": "best", 
+            "eval": prev_eval, 
+            "best_move": "", 
+            "opening": None, 
+            "engine_lines": []
+        }
     
 def rebuild_board(game_id: uuid.UUID, db: Session):
     # Csak a legutolsó lépést kérjük le (move_number alapján csökkenő sorrend, az első elem)

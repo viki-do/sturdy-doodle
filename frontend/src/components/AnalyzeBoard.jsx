@@ -7,6 +7,92 @@ import { useChess } from '../context/ChessContext';
 import { Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
+
+const getCapturedPieces = (fen) => {
+    const defaults = {
+        p: 8, n: 2, b: 2, r: 2, q: 1,
+        P: 8, N: 2, B: 2, R: 2, Q: 1
+    };
+    const currentOnBoard = {};
+    const position = fen.split(' ')[0];
+    for (let char of position) {
+        if (/[a-zA-Z]/.test(char)) {
+            currentOnBoard[char] = (currentOnBoard[char] || 0) + 1;
+        }
+    }
+    const captured = { whiteSide: [], blackSide: [] };
+    Object.keys(defaults).forEach(piece => {
+        const count = defaults[piece] - (currentOnBoard[piece] || 0);
+        for (let i = 0; i < count; i++) {
+            if (piece === piece.toUpperCase()) captured.blackSide.push(piece.toLowerCase());
+            else captured.whiteSide.push(piece);
+        }
+    });
+    const order = ['p', 'n', 'b', 'r', 'q'];
+    captured.whiteSide.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    captured.blackSide.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    return captured;
+};
+
+const getMaterialDiff = (captured) => {
+    const values = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+    const whiteVal = captured.whiteSide.reduce((sum, p) => sum + values[p], 0);
+    const blackVal = captured.blackSide.reduce((sum, p) => sum + values[p], 0);
+    return whiteVal - blackVal;
+};
+
+const CapturedRow = ({ pieces, side, diff }) => {
+    // 1. Csoportosítjuk a bábukat típus szerint
+    // Eredmény pl: { p: ['p', 'p'], n: ['n'], b: ['b', 'b'] }
+    const groups = pieces.reduce((acc, piece) => {
+        if (!acc[piece]) acc[piece] = [];
+        acc[piece].push(piece);
+        return acc;
+    }, {});
+
+    // Meghatározzuk a fix sorrendet (gyalogtól a vezérig)
+    const order = ['p', 'n', 'b', 'r', 'q'];
+
+    return (
+        <div className="flex items-center h-5 mt-1 ml-0.5">
+            <div className="flex gap-[2px]"> {/* Távolság a típuscsoportok között */}
+                {order.map(type => {
+                    const group = groups[type];
+                    if (!group) return null;
+
+                    return (
+                        <div key={type} className="flex relative" style={{ marginRight: group.length > 1 ? '4px' : '0' }}>
+                            {group.map((piece, idx) => (
+                                <img 
+                                    key={idx}
+                                    src={`/assets/pieces/${side === 'white' ? 'black' : 'white'}_${
+                                        piece === 'p' ? 'pawn' : piece === 'n' ? 'knight' : 
+                                        piece === 'b' ? 'bishop' : piece === 'r' ? 'rook' : 'queen'
+                                    }.png`}
+                                    className="w-4.5 h-4.5 object-contain"
+                                    style={{ 
+                                        // Itt történik az egymás mögé csúsztatás
+                                        marginLeft: idx === 0 ? 0 : '-10px', 
+                                        zIndex: idx 
+                                    }}
+                                    alt={piece}
+                                />
+                            ))}
+                        </div>
+                    );
+                })}
+            </div>
+            
+            {/* Anyagi előny kiírása a sor végén */}
+            {diff > 0 && (
+                <span className="text-[11px] font-bold text-[#8b8987] ml-2 leading-none self-center">
+                    +{diff}
+                </span>
+            )}
+        </div>
+    );
+};
+
 const AnalyzeBoard = () => {
     const chessContext = useChess();
     
@@ -21,15 +107,17 @@ const AnalyzeBoard = () => {
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
     const [pendingPromotion, setPendingPromotion] = useState(null);
+    const [previewFen, setPreviewFen] = useState(null);
 
     const {
         getSquareName, setSelectedSquare, setValidMoves, API_BASE,
         selectedSquare, validMoves, isDragging, setIsDragging,
         token, playSound, setMousePos, setDragOffset, 
-        setHoverSquare, hoverSquare, mousePos
+        setHoverSquare, hoverSquare
     } = chessContext;
 
-    // --- PERSISTENCE: Betöltés és Mentés ---
+   
+    // --- PERSISTENCE ---
     useEffect(() => {
         const saved = localStorage.getItem('chess_analysis_cache');
         if (saved) {
@@ -48,58 +136,140 @@ const AnalyzeBoard = () => {
         localStorage.setItem('chess_analysis_cache', JSON.stringify(cache));
     }, [sandboxFen, sandboxHistory, sandboxLastMove, openingName]);
 
+    // Segédfüggvény a variáció végigjátszásához (Ha mégis a fő táblán szeretnéd látni)
+
+
+    const handleHoverVariation = useCallback((pvUci) => {
+        if (!pvUci || pvUci.length === 0) {
+            setPreviewFen(null);
+            return;
+        }
+        try {
+            const tempChess = new Chess(sandboxFen);
+            for (const uci of pvUci) {
+                tempChess.move({ 
+                    from: uci.slice(0, 2), 
+                    to: uci.slice(2, 4), 
+                    promotion: uci[4] || 'q' 
+                });
+            }
+            setPreviewFen(tempChess.fen());
+        } catch (e) {
+            setPreviewFen(null);
+        }
+    }, [sandboxFen]);
+
     // --- LÉPÉS VÉGREHAJTÁS ---
     const executeAnalysisMove = async (from, to, promotion = null) => {
+        if (viewIndex !== -1) {
+            const latest = sandboxHistory[sandboxHistory.length - 1];
+            if (latest) {
+                setSandboxFen(latest.fen);
+                setSandboxLastMove({ from: latest.from, to: latest.to });
+            }
+            setViewIndex(-1);
+            return; 
+        }
+
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
+
         const chess = new Chess(sandboxFen);
+        const fenBefore = sandboxFen;
         const piece = chess.get(from);
 
-        // Promóció ellenőrzése
         if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
             setPendingPromotion({ from, to });
             setIsDragging(false);
             return;
         }
 
-        const fenBefore = sandboxFen;
         const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
-        
         if (!moveAttempt) return;
 
         const newFen = chess.fen();
         setSandboxFen(newFen);
         setSandboxLastMove({ from, to });
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setIsDragging(false);
-        setHoverSquare(null);
         setPendingPromotion(null);
-        setViewIndex(-1);
 
+        const tempMove = {
+            num: sandboxHistory.length,
+            m: moveAttempt.san,
+            from, to,
+            fen: newFen,
+            analysisLabel: null 
+        };
+        setSandboxHistory(prev => [...prev, tempMove]);
         playSound(moveAttempt.captured ? 'capture' : 'move');
 
         setIsAnalyzing(true);
         try {
-            const prevEval = sandboxHistory.length > 0 ? (sandboxHistory[sandboxHistory.length - 1].rawEval || 30) : 30;
+            const prevEval = sandboxHistory.length > 0 
+                ? (sandboxHistory[sandboxHistory.length - 1].rawEval || 0) 
+                : 0;
+
             const res = await axios.post(`${API_BASE}/analyze-sandbox-move`, {
-                fen_before: fenBefore, move: moveAttempt.san, prev_eval: prevEval
+                fen_before: fenBefore, 
+                move: moveAttempt.san, 
+                prev_eval: prevEval
             }, { headers: { Authorization: `Bearer ${token}` } });
 
-            setSandboxHistory(prev => [...prev, {
-                num: prev.length, m: moveAttempt.san, from, to, fen: newFen,
-                analysisLabel: res.data.label, eval: res.data.eval / 100,
-                rawEval: res.data.eval, bestMove: res.data.best_move
-            }]);
+            setSandboxHistory(prev => prev.map((h, i) => 
+                i === prev.length - 1 ? {
+                    ...h,
+                    analysisLabel: res.data.label?.toLowerCase(),
+                    eval: res.data.eval / 100,
+                    rawEval: res.data.eval,
+                    bestMove: res.data.best_move,
+                    engineLines: res.data.engine_lines || [] 
+                } : h
+            ));
 
             if (res.data.opening) {
                 setOpeningName(typeof res.data.opening === 'object' ? res.data.opening.name : res.data.opening);
             }
         } catch (err) {
-            setSandboxHistory(prev => [...prev, { m: moveAttempt.san, from, to, fen: newFen, num: prev.length }]);
-        } finally { setIsAnalyzing(false); }
+            console.error("Analysis error:", err);
+        } finally { 
+            setIsAnalyzing(false); 
+        }
     };
 
-    // --- EGÉR ÉS ÉRINTÉS KEZELÉS ---
+    const handleFullReview = async () => {
+        if (sandboxHistory.length === 0) return;
+        setIsAnalyzing(true);
+        try {
+            const moveList = sandboxHistory.map(h => h.m);
+            const res = await axios.post(`${API_BASE}/analyze-full-game-sandbox`, { moves: moveList }, { headers: { Authorization: `Bearer ${token}` } });
+
+            if (res.data && res.data.analysis) {
+                setSandboxHistory(prev => prev.map((h, i) => {
+                    const moveAnalysis = res.data.analysis.find(a => a.move_number === (i + 1));
+                    if (moveAnalysis) {
+                        return { 
+                            ...h, 
+                            analysisLabel: moveAnalysis.label.toLowerCase(),
+                            eval: moveAnalysis.eval / 100,
+                            rawEval: moveAnalysis.eval,
+                            bestMove: moveAnalysis.best_move,
+                            engineLines: moveAnalysis.engine_lines || [],
+                            engine_lines: moveAnalysis.engine_lines || []
+                        };
+                    }
+                    return h;
+                }));
+            }
+        } catch (err) {
+            console.error("Full review error:", err);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     const handleMouseDown = (e, row, col) => {
+        if (previewFen) return; // Zárolás preview alatt
+
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         const square = getSquareName(row, col);
@@ -130,18 +300,15 @@ const AnalyzeBoard = () => {
 
     const handleMouseUp = useCallback(async () => {
         if (!isDragging || !selectedSquare) return;
-
         const from = selectedSquare;
         const target = hoverSquare; 
         
         setIsDragging(false);
+        setSelectedSquare(null);
+        setValidMoves([]);
+        setHoverSquare(null);
 
-        if (!target || target === from) {
-            setSelectedSquare(null);
-            setValidMoves([]);
-            setHoverSquare(null);
-            return;
-        }
+        if (!target || target === from) return;
 
         const chess = new Chess(sandboxFen);
         const isValid = chess.moves({ square: from, verbose: true }).some(m => m.to === target);
@@ -150,21 +317,14 @@ const AnalyzeBoard = () => {
             await executeAnalysisMove(from, target);
         } else {
             playSound('illegal');
-            setSelectedSquare(null);
-            setValidMoves([]);
         }
-        setHoverSquare(null);
-    }, [isDragging, selectedSquare, hoverSquare, sandboxFen, playSound]);
+    }, [isDragging, selectedSquare, hoverSquare, sandboxFen, playSound, executeAnalysisMove]);
 
-    // Globális mozgás figyelés (Drag & Touch fix)
     useEffect(() => {
         const handleMove = (e) => {
             if (!isDragging) return;
-            if (e.type === 'touchmove' && e.cancelable) e.preventDefault();
-            
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
             setMousePos({ x: clientX, y: clientY });
 
             const board = document.getElementById('chess-board')?.getBoundingClientRect();
@@ -172,34 +332,33 @@ const AnalyzeBoard = () => {
                 let col = Math.floor((clientX - board.left) / (board.width / 8));
                 let row = Math.floor((clientY - board.top) / (board.height / 8));
                 if (isFlipped) { col = 7 - col; row = 7 - row; }
-                
-                if (col >= 0 && col < 8 && row >= 0 && row < 8) {
-                    setHoverSquare(getSquareName(row, col));
-                } else {
-                    setHoverSquare(null);
-                }
+                if (col >= 0 && col < 8 && row >= 0 && row < 8) setHoverSquare(getSquareName(row, col));
+                else setHoverSquare(null);
             }
         };
-
         const handleGlobalUp = () => { if (isDragging) handleMouseUp(); };
-
         window.addEventListener('mousemove', handleMove);
         window.addEventListener('touchmove', handleMove, { passive: false });
         window.addEventListener('mouseup', handleGlobalUp);
         window.addEventListener('touchend', handleGlobalUp);
-
         return () => {
             window.removeEventListener('mousemove', handleMove);
             window.removeEventListener('touchmove', handleMove);
             window.removeEventListener('mouseup', handleGlobalUp);
             window.removeEventListener('touchend', handleGlobalUp);
         };
-    }, [isDragging, isFlipped, getSquareName, handleMouseUp]);
+    }, [isDragging, isFlipped, getSquareName, handleMouseUp, setMousePos, setHoverSquare]);
 
-    // --- UI SZÁMÍTÁSOK ---
-    const currentEval = viewIndex === -1 && sandboxHistory.length > 0 
+
+
+    // Mindig az aktuális (vagy preview) FEN alapján számolunk
+    const currentFen = previewFen || (viewIndex === -1 ? sandboxFen : (sandboxHistory[viewIndex]?.fen || sandboxFen));
+    const captured = getCapturedPieces(currentFen);
+    const materialDiff = getMaterialDiff(captured);
+
+    const currentEvalValue = viewIndex === -1 && sandboxHistory.length > 0 
         ? sandboxHistory[sandboxHistory.length - 1].eval : 0;
-    const whiteBarHeight = Math.min(Math.max(50 + (currentEval * 10), 5), 95);
+    const whiteBarHeight = Math.min(Math.max(50 + (currentEvalValue * 10), 5), 95);
 
     return (
         <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] p-4 gap-12 overflow-hidden select-none font-sans justify-center items-center">
@@ -208,17 +367,25 @@ const AnalyzeBoard = () => {
             <div className="w-8 h-170 bg-[#262421] rounded-sm overflow-hidden flex flex-col-reverse relative border border-[#3c3a37] shrink-0 shadow-lg">
                 <div className="bg-white w-full transition-all duration-700 ease-out" style={{ height: `${whiteBarHeight}%` }}>
                     <span className="absolute bottom-2 left-0 w-full text-center text-[10px] font-bold text-black uppercase">
-                        {(currentEval || 0).toFixed(1)}
+                        {(currentEvalValue || 0).toFixed(1)}
                     </span>
                 </div>
             </div>
 
             {/* TÁBLA SZEKCIÓ */}
             <div className="flex flex-col justify-center items-center gap-2">
-                <div className="w-170 flex items-center justify-between px-1 h-8 text-[#8b8987] text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-[#262421] rounded flex items-center justify-center italic text-xs border border-white/5">B</div>
-                        <span className="font-bold">Black</span>
+                {/* BLACK PLAYER INFO */}
+                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#8b8987]">
+                    <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-[#262421] rounded flex items-center justify-center italic text-xs border border-white/5 font-bold">B</div>
+                            <span className="font-bold text-sm">Black</span>
+                        </div>
+                        <CapturedRow 
+                            pieces={captured.blackSide} 
+                            side="black" 
+                            diff={materialDiff < 0 ? Math.abs(materialDiff) : 0} 
+                        />
                     </div>
                     <Settings size={18} className="cursor-pointer hover:text-white transition-colors" />
                 </div>
@@ -227,20 +394,19 @@ const AnalyzeBoard = () => {
                     <ChessBoardGrid 
                         gameLogic={{ 
                             ...chessContext, 
-                            fen: sandboxFen, 
+                            fen: previewFen || (viewIndex === -1 ? sandboxFen : (sandboxHistory[viewIndex]?.fen || sandboxFen)), 
                             history: sandboxHistory, 
-                            lastMove: sandboxLastMove, 
+                            lastMove: previewFen ? { from: null, to: null } : sandboxLastMove, 
                             isFlipped,
                             viewIndex,
-                            status: "ongoing", // Hogy sandboxban mindig megfogható legyen a bábu
-                            isAlert: false,    // Tiltjuk a király villogását szabálytalan lépésnél
+                            status: previewFen ? "viewing" : "ongoing",
                             handleMouseUp: handleMouseUp 
                         }} 
                         onMouseDown={handleMouseDown} 
                         onMouseUp={handleMouseUp} 
                     />
 
-                    {/* Promóció választó */}
+                    {/* Promóció */}
                     {pendingPromotion && (
                         <div className="absolute z-[5000] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
                             style={{
@@ -258,18 +424,27 @@ const AnalyzeBoard = () => {
                     )}
                 </div>
 
-                <div className="w-170 flex items-center justify-between px-1 h-8 text-[#bab9b8] text-sm font-bold">
-                    <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-[#ffffff] rounded flex items-center justify-center text-black italic text-xs shadow-sm">W</div>
-                        <span>White</span>
+                {/* WHITE PLAYER INFO */}
+                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#bab9b8]">
+                    <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-[#ffffff] rounded flex items-center justify-center text-black italic text-xs shadow-sm font-bold border border-black/10">W</div>
+                            <span className="font-bold text-sm text-[#bab9b8]">White</span>
+                        </div>
+                        <CapturedRow 
+                            pieces={captured.whiteSide} 
+                            side="white" 
+                            diff={materialDiff > 0 ? materialDiff : 0} 
+                        />
                     </div>
                 </div>
             </div>
+        
 
             {/* PANEL */}
             <AnalysisPanel 
                 history={sandboxHistory}
-                currentEval={currentEval}
+                currentEval={currentEvalValue}
                 openingName={openingName}
                 viewIndex={viewIndex}
                 onViewMove={(idx) => {
@@ -287,6 +462,8 @@ const AnalyzeBoard = () => {
                 }}
                 onSaveClick={() => setIsSaveModalOpen(true)}
                 onNewClick={() => sandboxHistory.length > 0 && setIsNewModalOpen(true)}
+                onReviewClick={handleFullReview}
+                onHoverVariation={handleHoverVariation}
             />
   
 

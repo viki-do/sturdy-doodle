@@ -24,7 +24,7 @@ const moves = {
         label: "Good", 
         desc: "Megfelelő lépés." 
     },
-    dubious: { 
+    inaccuracy: { 
         src: "/assets/moves/dubious.png", 
         label: "Inaccuracy", 
         desc: "Pontatlanság, ami ront az esélyeken." 
@@ -43,6 +43,11 @@ const moves = {
         src: "/assets/moves/miss.png", 
         label: "Miss", 
         desc: "Elszalasztott lehetőség a győzelemre." 
+    },
+    book: { 
+        src: "/assets/moves/book.png", 
+        label: "Book", 
+        desc: "Book move." 
     },
 }
     

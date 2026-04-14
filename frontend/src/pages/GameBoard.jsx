@@ -48,6 +48,8 @@ const GameBoard = () => {
 
     // --- ÚJ FÜGGVÉNYEK ---
 
+    const isGameActive = !!gameId && gameId !== "null";
+
     const getInitialTimeDisplay = (timeStr) => {
         const config = gameLogic.parseTimeControl(timeStr);
         return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
@@ -195,33 +197,34 @@ const GameBoard = () => {
     };
 
     const handleRunFullAnalysis = async () => {
-        if (!gameId || gameId === "null") return;
-        setIsAnalyzing(true);
-        try {
-            const res = await axios.post(`${API_BASE}/analyze-full-game/${gameId}`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setAnalysisData(res.data);
-            setHistory(prev => prev.map(h => {
-                const moveAnalysis = res.data.analysis.find(a => a.move_number === h.num);
-                if (moveAnalysis) {
-                    return {
-                        ...h,
-                        analysisLabel: moveAnalysis.label,
-                        eval: moveAnalysis.eval,
-                        bestMove: moveAnalysis.best_move
-                    };
-                }
-                return h;
-            }));
-        } catch (err) {
-            console.error("Analysis error:", err);
-        } finally {
-            setIsAnalyzing(false);
-        }
-    };
-
-    const isGameActive = !!gameId && gameId !== "null";
+    if (!gameId || gameId === "null") return;
+    setIsAnalyzing(true);
+    try {
+        const res = await axios.post(`${API_BASE}/analyze-full-game/${gameId}`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setAnalysisData(res.data);
+        
+        setHistory(prev => prev.map(h => {
+            // Megkeressük a backend elemzésében a sorszám alapján (num)
+            const moveAnalysis = res.data.analysis.find(a => a.move_number === h.num);
+            if (moveAnalysis) {
+                return {
+                    ...h,
+                    analysisLabel: moveAnalysis.label.toLowerCase(), // Ikonok miatt kisbetű!
+                    eval: moveAnalysis.eval,
+                    bestMove: moveAnalysis.best_move
+                };
+            }
+            return h;
+        }));
+    } catch (err) {
+        console.error("Analysis error:", err);
+    } finally {
+        setIsAnalyzing(false);
+    }
+};
 
     const handleBotSelect = async (bot, color, time) => {
     setIsStarting(true);
@@ -556,7 +559,10 @@ const GameBoard = () => {
                 setPreviewOpponent,
                 isPopupClosed,
                 setIsPopupClosed,
-                setIsPopupVisible:delayedShowPopup
+                setIsPopupVisible:delayedShowPopup,
+                handleRunFullAnalysis, // <--- EZ HIÁNYZOTT
+                analysisData,          // <--- EZ HIÁNYZOTT
+                isAnalyzing,
             }} />
             </div>
         </div>
