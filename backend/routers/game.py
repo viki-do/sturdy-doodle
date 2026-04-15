@@ -2,7 +2,6 @@ import uuid
 import chess
 import chess.engine
 from datetime import datetime
-# Request hozzáadva a FastAPI importokhoz
 from fastapi import APIRouter, Depends, HTTPException, Request 
 from sqlalchemy.orm import Session
 import models
@@ -29,6 +28,15 @@ def get_engine():
     if engine_singleton is None:
         try:
             engine_singleton = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+            
+            # --- KONFIGURÁCIÓ A STABILITÁSHOZ ---
+            engine_singleton.configure({
+                "Threads": 2,      # Használj 2 szálat (gyors, de nem terheli le a gépedet teljesen)
+                "Hash": 256,       # 256 MB memória (segít, hogy emlékezzen a korábbi számításokra)
+                "Ponder": False,   # Kikapcsoljuk, hogy ne számoljon feleslegesen a háttérben
+            })
+            print("Stockfish sikeresen elindítva (Threads: 2, Hash: 256MB)")
+            
         except Exception as e:
             print(f"Hiba a Stockfish indításakor: {e}")
             raise e
@@ -275,7 +283,76 @@ def analyze_sandbox_move(data: dict):
             "opening": None, 
             "engine_lines": []
         }
+
+@router.post("/analyze-full-game-sandbox")
+def analyze_full_game_sandbox(data: dict):
+    moves_list = data.get("moves", [])
+    # Ha a kliens küld egyedi FEN-t, azt használjuk, egyébként az alapállást
+    initial_fen = data.get("initial_fen", chess.STARTING_FEN)
     
+    if not moves_list:
+        return {"analysis": []}
+
+    engine = get_engine()
+    # A táblát a megadott kezdőpozícióval inicializáljuk!
+    board = chess.Board(initial_fen)
+    coach = ChessCoachEngine()
+    full_analysis = []
+    
+    # Kezdő értékelés meghatározása (ha nem alapállás, érdemes ránézni)
+    # Az alapértelmezett 30 (enyhe fehér előny) jó kiindulópont
+    prev_eval = 30 
+
+    for i, m_san in enumerate(moves_list):
+        # Megnyitás ellenőrzés (csak ha alapállásból indultunk, de a kereső kezeli)
+        parts = board.fen().split()
+        search_key = f"{parts[0]} {parts[1]}"
+        book_info = OPENING_BOOK.get(search_key)
+        is_book = book_info is not None
+        
+        try:
+            player_move = board.parse_san(m_san)
+        except:
+            try:
+                player_move = board.parse_uci(m_san)
+            except:
+                continue # Ha hibás a lépés jelölése, ugorjuk át
+
+        # Multi-PV elemzés (depth=20 a pontosságért)
+        analysis = engine.analyse(board, chess.engine.Limit(depth=20), multipv=3)
+        
+        # Címkézés (label, eval)
+        label, move_eval = coach.classify_move(board, player_move, analysis, prev_eval, is_book=is_book)
+        
+        # Engine Lines összeállítása
+        engine_lines = []
+        for entry in analysis:
+            score_white = entry["score"].white().score(mate_score=10000)
+            pv_moves = entry.get("pv", [])
+            engine_lines.append({
+                "eval": score_white / 100.0 if abs(score_white) < 5000 else f"M{int((10000-abs(score_white))/100)}",
+                "raw_eval": score_white,
+                "continuation": board.variation_san(pv_moves[:10]),
+                "pv_uci": [move.uci() for move in pv_moves[:10]]
+            })
+
+        full_analysis.append({
+            "move_number": i + 1,
+            "m": m_san,
+            "label": label,
+            "is_book": is_book,
+            "eval": move_eval / 100.0 if abs(move_eval) < 5000 else f"M{int((10000-abs(move_eval))/100)}",
+            "best_move": board.san(analysis[0]["pv"][0]) if analysis[0].get("pv") else "",
+            "engine_lines": engine_lines,
+            "opening": book_info["name"] if is_book else None
+        })
+
+        board.push(player_move)
+        prev_eval = move_eval
+
+    return {"analysis": full_analysis}
+
+
 def rebuild_board(game_id: uuid.UUID, db: Session):
     # Csak a legutolsó lépést kérjük le (move_number alapján csökkenő sorrend, az első elem)
     last_move = db.query(models.Move).filter(

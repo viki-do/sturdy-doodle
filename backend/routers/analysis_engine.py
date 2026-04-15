@@ -31,7 +31,8 @@ class ChessCoachEngine:
 
         # Stockfish mélyelemzés
         
-        analysis = engine.analyse(board, chess.engine.Limit(depth=depth), multipv=multipv)
+        # ChessCoachEngine.py-ban módosítsd:
+        analysis = engine.analyse(board, chess.engine.Limit(nodes=1000000), multipv=multipv)
         lines = []
         for entry in analysis:
             score = entry["score"].white().score(mate_score=10000)
@@ -99,7 +100,9 @@ class ChessCoachEngine:
         if actual_move_info:
             move_eval = actual_move_info["score"].white().score(mate_score=10000)
         else:
-            move_eval = best_eval - 150 if is_white else best_eval + 150
+            # Ha a lépés nincs a Multi-PV listában, akkor az rosszabb, mint a 3. legjobb.
+            # Itt egy fix büntetés helyett érdemes a 3. PV értéke alá lőni egy kicsivel.
+            move_eval = best_eval - 200 if is_white else best_eval + 200
 
         p_prev = self.get_win_chance(prev_eval if is_white else -prev_eval)
         p_best = self.get_win_chance(best_eval if is_white else -best_eval)
@@ -108,25 +111,31 @@ class ChessCoachEngine:
         loss = p_best - p_curr
         delta_prev = p_prev - p_curr 
 
-        # Prioritási sorrend
-        if p_best > p_prev + 0.18 and p_curr < p_prev + 0.01: return "miss", move_eval
-        if delta_prev > 0.18 or loss > 0.25: return "blunder", move_eval
-        if delta_prev > 0.08 or loss > 0.12: return "mistake", move_eval
-        if delta_prev > 0.035 or loss > 0.06: return "inaccuracy", move_eval
-
-        if len(analysis_list) > 1:
-            score_2nd = analysis_list[1]["score"].white().score(mate_score=10000)
-            p_second = self.get_win_chance(score_2nd if is_white else -score_2nd)
-            if (p_best - p_second) > 0.18 and loss < 0.002: return "great", move_eval
-
-        if self.is_sacrifice(board, move) and loss < 0.01 and 0.45 < p_curr < 0.92:
+        # --- STABILIZÁLT PRIORITÁSOK ---
+        # Brilliant: Csak ha tényleges áldozat ÉS a motor stabilan jónak látja
+        if self.is_sacrifice(board, move) and loss < 0.015 and 0.40 < p_curr < 0.95:
             mover_piece = board.piece_at(move.from_square)
             if mover_piece and mover_piece.piece_type != chess.PAWN:
                 return "brilliant", move_eval
 
-        if loss < 0.002: return "best", move_eval
-        if loss < 0.010: return "excellent", move_eval
-        if loss < 0.035: return "good", move_eval
+        # Great: Ha sokkal jobb, mint a 2. legjobb lehetőség
+        if len(analysis_list) > 1:
+            score_2nd = analysis_list[1]["score"].white().score(mate_score=10000)
+            p_second = self.get_win_chance(score_2nd if is_white else -score_2nd)
+            if (p_best - p_second) > 0.15 and loss < 0.005: 
+                return "great", move_eval
+
+        # Hibák besorolása (kicsit megemelt küszöbök a stabilitásért)
+        if p_best > p_prev + 0.20 and p_curr < p_prev + 0.02: return "miss", move_eval
+        if delta_prev > 0.20 or loss > 0.30: return "blunder", move_eval
+        if delta_prev > 0.10 or loss > 0.15: return "mistake", move_eval
+        if delta_prev > 0.04 or loss > 0.08: return "inaccuracy", move_eval
+
+        # Pozitív címkék
+        if loss < 0.003: return "best", move_eval       # Nagyon szigorú 'best'
+        if loss < 0.015: return "excellent", move_eval  # Megengedőbb 'excellent'
+        if loss < 0.045: return "good", move_eval
+        
         return "inaccuracy", move_eval
 
     def calculate_accuracy(self, win_chance_losses, win_probs_before):

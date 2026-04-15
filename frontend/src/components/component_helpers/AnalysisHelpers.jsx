@@ -102,9 +102,17 @@ export const MoveItem = ({ move, isActive, onClick, isBlack }) => {
                 
                 <span>{displayNotation}</span>
 
-                {asset?.src && (
-                    <img src={asset.src} className="w-3.5 h-3.5 ml-1 animate-in fade-in duration-300" alt="" />
-                )}
+                {move.analysisLabel && (
+    <div className="flex items-center ml-1">
+        {asset?.src ? (
+            <img src={asset.src} className="w-3.5 h-3.5" alt={move.analysisLabel} />
+        ) : (
+            <span className="text-[10px] bg-green-600 text-white rounded-full px-1">
+                {move.analysisLabel[0].toUpperCase()}
+            </span>
+        )}
+    </div>
+)}
             </div>
         </div>
     );

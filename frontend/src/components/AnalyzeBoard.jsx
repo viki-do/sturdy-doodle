@@ -100,8 +100,12 @@ const CapturedRow = ({ pieces, side, diff }) => {
 const AnalyzeBoard = () => {
     const chessContext = useChess();
     
+    const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     // --- ÁLLAPOTOK ---
-    const [sandboxFen, setSandboxFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    const [sandboxFen, setSandboxFen] = useState(DEFAULT_FEN);
+
+    const [sandboxStartingFen, setSandboxStartingFen] = useState(DEFAULT_FEN);
+
     const [sandboxHistory, setSandboxHistory] = useState([]);
     const [sandboxLastMove, setSandboxLastMove] = useState({ from: null, to: null });
     const [viewIndex, setViewIndex] = useState(-1);
@@ -112,6 +116,7 @@ const AnalyzeBoard = () => {
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
     const [pendingPromotion, setPendingPromotion] = useState(null);
     const [previewFen, setPreviewFen] = useState(null);
+    // Az abszolút kezdőállás, amit referenciaként használunk
 
     const {
         getSquareName, setSelectedSquare, setValidMoves, API_BASE,
@@ -123,24 +128,35 @@ const AnalyzeBoard = () => {
    
     // --- PERSISTENCE ---
     useEffect(() => {
-        const saved = localStorage.getItem('chess_analysis_cache');
-        if (saved) {
-            try {
-                const data = JSON.parse(saved);
-                setSandboxFen(data.fen);
-                setSandboxHistory(data.history || []);
-                setSandboxLastMove(data.lastMove || { from: null, to: null });
-                setOpeningName(data.opening || "");
-            } catch (e) { console.error("Cache error", e); }
+    const saved = localStorage.getItem('chess_analysis_cache');
+    if (saved) {
+        try {
+            const data = JSON.parse(saved);
+            
+            // A meglévő betöltéseid:
+            if (data.fen) setSandboxFen(data.fen);
+            if (data.history) setSandboxHistory(data.history);
+            if (data.lastMove) setSandboxLastMove(data.lastMove);
+            if (data.opening) setOpeningName(data.opening);
+
+            if (data.startingFen) {
+                setSandboxStartingFen(data.startingFen);
+            } else if (data.fen && (!data.history || data.history.length === 0)) {
+            
+                setSandboxStartingFen(data.fen);
+            }
+
+        } catch (e) {
+            console.error("Hiba a cache betöltésekor:", e);
         }
-    }, []);
+    }
+}, []); 
 
     useEffect(() => {
-        const cache = { fen: sandboxFen, history: sandboxHistory, lastMove: sandboxLastMove, opening: openingName };
+        const cache = { fen: sandboxFen, history: sandboxHistory, lastMove: sandboxLastMove, opening: openingName, startingFen: sandboxStartingFen };
         localStorage.setItem('chess_analysis_cache', JSON.stringify(cache));
-    }, [sandboxFen, sandboxHistory, sandboxLastMove, openingName]);
+    }, [sandboxFen, sandboxHistory, sandboxLastMove, openingName, sandboxStartingFen]);
 
-    // Segédfüggvény a variáció végigjátszásához (Ha mégis a fő táblán szeretnéd látni)
 
 
     const handleHoverVariation = useCallback((pvUci) => {
@@ -240,37 +256,94 @@ const AnalyzeBoard = () => {
         }
     };
 
-    const handleFullReview = async () => {
-        if (sandboxHistory.length === 0) return;
-        setIsAnalyzing(true);
-        try {
-            const moveList = sandboxHistory.map(h => h.m);
-            const res = await axios.post(`${API_BASE}/analyze-full-game-sandbox`, { moves: moveList }, { headers: { Authorization: `Bearer ${token}` } });
+const handleFullReview = async () => {
+    console.log("--- DEBUG: Full Review Folyamat Elindult ---");
+    
+    // 1. Ellenőrizzük, van-e egyáltalán mit elemezni
+    if (sandboxHistory.length === 0) {
+        console.warn("STOP: A sandboxHistory üres, nincs mit elemezni.");
+        return;
+    }
 
-            if (res.data && res.data.analysis) {
-                setSandboxHistory(prev => prev.map((h, i) => {
+    setIsAnalyzing(true);
+
+    try {
+        
+        const moveList = sandboxHistory.map(h => h.m);
+        
+        const startFen = typeof sandboxStartingFen !== 'undefined' && sandboxStartingFen 
+            ? sandboxStartingFen 
+            : 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+        console.log("1. Küldésre kész adatok:", {
+            initial_fen: startFen,
+            moves_count: moveList.length,
+            moves: moveList
+        });
+
+
+        console.log("2. API hívás indítása: /analyze-full-game-sandbox");
+        const res = await axios.post(`${API_BASE}/analyze-full-game-sandbox`, { 
+            moves: moveList,
+            initial_fen: sandboxStartingFen 
+        }, { 
+            headers: { Authorization: `Bearer ${token}` } 
+        });
+
+        console.log("3. Szerver válasz megérkezett:", res.data);
+
+        if (res.data && res.data.analysis) {
+            console.log("4. History frissítése az elemzési adatokkal...");
+            
+            setSandboxHistory(prev => {
+                const updatedHistory = prev.map((h, i) => {
+                    // Megkeressük a válaszban a lépés sorszáma alapján (1-től indul a backend-en)
                     const moveAnalysis = res.data.analysis.find(a => a.move_number === (i + 1));
+                    
                     if (moveAnalysis) {
                         return { 
                             ...h, 
                             analysisLabel: moveAnalysis.label.toLowerCase(),
-                            eval: moveAnalysis.eval / 100,
-                            rawEval: moveAnalysis.eval,
+                            eval: moveAnalysis.eval, // A backend már osztotta 100-zal
+                            rawEval: moveAnalysis.raw_eval,
                             bestMove: moveAnalysis.best_move,
                             engineLines: moveAnalysis.engine_lines || [],
-                            engine_lines: moveAnalysis.engine_lines || []
+                            // Megnyitás neve, ha van
+                            openingName: moveAnalysis.opening || null 
                         };
                     }
                     return h;
-                }));
+                });
+                
+                console.log("5. Frissített Sandbox History:", updatedHistory);
+                return updatedHistory;
+            });
+            
+            // Ha a szerver visszaadott egy globális megnyitás nevet, azt is beállíthatjuk
+            if (res.data.analysis[0]?.opening) {
+                setOpeningName(res.data.analysis[0].opening);
             }
-        } catch (err) {
-            console.error("Full review error:", err);
-        } finally {
-            setIsAnalyzing(false);
-        }
-    };
 
+            console.log("--- DEBUG: Full Review Sikeresen Befejeződött ---");
+        } else {
+            console.error("HIBA: A szerver válaszában nincs 'analysis' mező!", res.data);
+        }
+
+    } catch (err) {
+        console.error("!!! FULL REVIEW ERROR !!!");
+        if (err.response) {
+            console.error("Status:", err.response.status);
+            console.error("Szerver hibaüzenet:", err.response.data);
+            if (err.response.status === 404) {
+                console.error("404-es hiba: Még nem adtad hozzá az új végpontot a Python kódhoz!");
+            }
+        } else {
+            console.error("Hiba oka:", err.message);
+        }
+    } finally {
+        setIsAnalyzing(false);
+    }
+};
     const handleMouseDown = (e, row, col) => {
         if (previewFen) return; // Zárolás preview alatt
 
@@ -538,6 +611,7 @@ const AnalyzeBoard = () => {
                                     // Itt töröljük az elemzést
                                     setSandboxFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
                                     setSandboxHistory([]);
+                                    setSandboxStartingFen(DEFAULT_FEN);
                                     setSandboxLastMove({ from: null, to: null });
                                     setOpeningName("");
                                     setIsNewModalOpen(false);

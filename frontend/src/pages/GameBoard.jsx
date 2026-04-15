@@ -50,10 +50,10 @@ const GameBoard = () => {
 
     const isGameActive = !!gameId && gameId !== "null";
 
-    const getInitialTimeDisplay = (timeStr) => {
-        const config = gameLogic.parseTimeControl(timeStr);
-        return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
-    };
+    // const getInitialTimeDisplay = (timeStr) => {
+    //     const config = gameLogic.parseTimeControl(timeStr);
+    //     return config.base || 600; // Alapértelmezett 10 perc, ha nincs válaszva
+    // };
 
     useEffect(() => {
     // Bejelentkezéskor elmentett név lekérése
