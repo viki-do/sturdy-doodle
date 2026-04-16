@@ -624,8 +624,8 @@ useEffect(() => {
     // Óra effektus (Ref-ek nélkül, az eredeti logikád szerint)
     useEffect(() => {
         let timer;
-        if (gameId && status === "ongoing" && activeTimeColor) {
-            const startTime = Date.now();
+        if (gameId && gameId !== "null" && status === "ongoing" && activeTimeColor) {
+        const startTime = Date.now();
             const startValue = activeTimeColor === 'w' ? whiteTime : blackTime;
             timer = setInterval(async () => {
                 const now = Date.now();

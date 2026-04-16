@@ -33,7 +33,6 @@ def get_engine():
             engine_singleton.configure({
                 "Threads": 2,      # Használj 2 szálat (gyors, de nem terheli le a gépedet teljesen)
                 "Hash": 256,       # 256 MB memória (segít, hogy emlékezzen a korábbi számításokra)
-                "Ponder": False,   # Kikapcsoljuk, hogy ne számoljon feleslegesen a háttérben
             })
             print("Stockfish sikeresen elindítva (Threads: 2, Hash: 256MB)")
             

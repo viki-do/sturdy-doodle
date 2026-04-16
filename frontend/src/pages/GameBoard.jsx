@@ -427,7 +427,9 @@ const GameBoard = () => {
 
                 {/* ELLENFÉL ÓRÁJA */}
                 {/* JAVÍTÁS: Csak akkor mutassunk órát, ha van aktív játék VAGY a botválasztó menüben vagyunk */}
-                {((isGameActiveUI || location.pathname.includes('/bots')) && selectedTime !== "No Timer") && (
+                {((isGameActiveUI || location.pathname.includes('/bots')) && 
+                selectedTime !== "No Timer" && 
+                !location.pathname.includes('/analysis')) && (
                     <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                         isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
                     } ${activeTimeColor === (isFlipped ? 'w' : 'b') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
@@ -522,7 +524,9 @@ const GameBoard = () => {
 
                 {/* SAJÁT ÓRA */}
                 {/* JAVÍTÁS: Itt is ugyanaz a feltétel, /play alatt ne legyen óra válogatás közben se */}
-                {((isGameActiveUI || location.pathname.includes('/bots')) && selectedTime !== "No Timer") && (
+                {((isGameActiveUI || location.pathname.includes('/bots')) && 
+                selectedTime !== "No Timer" && 
+                !location.pathname.includes('/analysis')) && (
                     <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
                         isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
                     } ${activeTimeColor === (isFlipped ? 'b' : 'w') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
