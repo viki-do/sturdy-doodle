@@ -34,9 +34,8 @@ export const useChessGame = () => {
     const userId = localStorage.getItem('chessUserId');
     const token = localStorage.getItem('chessToken');
     const [reason, setReason] = useState("");
-    const [whiteTime, setWhiteTime] = useState(null); // 600 helyett null
-    const [blackTime, setBlackTime] = useState(null); // 600 helyett null
-    const [lastTimeControl, setLastTimeControl] = useState("No Timer");
+    const [whiteTime, setWhiteTime] = useState(600);
+    const [blackTime, setBlackTime] = useState(600);
     const [activeTimeColor, setActiveTimeColor] = useState(null);
     const [increment, setIncrement] = useState(0);
     const whiteWarnedRef = useRef(false);
@@ -48,7 +47,6 @@ export const useChessGame = () => {
     const lastBotRef = useRef({ elo: 1500, id: 'engine', style: 'mix' });
     const [isFlipped, setIsFlipped] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
-    
 
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
@@ -60,6 +58,7 @@ export const useChessGame = () => {
         return `${filesArr[col]}${8 - row}`;
     }, []);
 
+    const [lastTimeControl, setLastTimeControl] = useState("No Timer");
 
     const renderNotation = useCallback((text) => {
         if (!text || text === "start") return "";
@@ -125,27 +124,19 @@ export const useChessGame = () => {
 
 
     const resetGame = useCallback(() => {
-    // 1. ELŐSZÖR szóljunk a szervernek, amíg még megvan az ID
-    if (gameId) {
+        setGameId(null);
+        localStorage.removeItem('chessGameId');
+        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setLastMove({ from: null, to: null });
+        setHistory([]);
+        setStatus("");
+        setReason("");
+        setViewIndex(-1);
+        setActiveTimeColor(null);
+        lastPlayedMoveNum.current = 0;
+        // JAVÍTÁS: Socket lekapcsolása resetkor
         socket.emit("leave_game", { game_id: gameId });
-    }
-
-    // 2. Töröljük az ID-t
-    setGameId(null);
-    localStorage.removeItem('chessGameId');
-
-    // 3. Állapotok alaphelyzetbe állítása
-    // Fontos: a sorrend itt is számít, hogy a komponensek ne higgyék azt, hogy lépés történt
-    setHistory([]);
-    setLastMove({ from: null, to: null });
-    setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    
-    setStatus("");
-    setReason("");
-    setViewIndex(-1);
-    setActiveTimeColor(null);
-    lastPlayedMoveNum.current = 0;
-}, [gameId]);
+    }, [gameId]);
 
     const setSpectatorMode = useCallback(() => {
         setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -167,10 +158,7 @@ export const useChessGame = () => {
 
         const finalTimeControl = timeControl || lastTimeControl || "No Timer";
         const config = parseTimeControl(finalTimeControl);
-
-        // JAVÍTÁS: Ha No Timer, legyen null vagy 0, ne 600!
-        const isNoTimer = finalTimeControl === "No Timer";
-        const initialTime = isNoTimer ? null : (config.base || 600);
+        const initialTime = config.base || 600;
 
         whiteWarnedRef.current = false;
         blackWarnedRef.current = false;
@@ -598,7 +586,7 @@ useEffect(() => {
             else if (san.includes('=')) playSound('promote');
             else if (san.includes('O-O')) playSound('castle');
             else playSound('move');
-        }, 100);
+        }, 110);
     };
 
     const handleGameOver = (data) => {
@@ -608,7 +596,7 @@ useEffect(() => {
         setStatus(data.status);
         setReason(data.reason);
         setActiveTimeColor(null);
-        // localStorage.removeItem('chessGameId');
+        localStorage.removeItem('chessGameId');
         // playSound('game-end');
     };
 
@@ -632,48 +620,42 @@ useEffect(() => {
         socket.off("game_over", handleGameOver);
     };
 
-}, [gameId, playSound]); 
-
-
+}, [gameId, playSound]); // Az időzítőket (whiteTime, blackTime) szándékosan kihagyjuk!
+    // Óra effektus (Ref-ek nélkül, az eredeti logikád szerint)
     useEffect(() => {
-    let timer;
-    
-    if (gameId && status === "ongoing" && activeTimeColor && whiteTime !== null) {
-        const startTime = Date.now();
-        const startValue = activeTimeColor === 'w' ? whiteTime : blackTime;
-        
-        timer = setInterval(async () => {
-            const now = Date.now();
-            const elapsed = (now - startTime) / 1000;
-            const newValue = Math.max(0, startValue - elapsed);
-            
-            if (activeTimeColor === 'w') {
-                setWhiteTime(newValue);
-            } else {
-                setBlackTime(newValue);
-            }
-
-            if (newValue <= 0) {
-                clearInterval(timer);
-                setActiveTimeColor(null);
-                try {
-                    const res = await axios.post(`${API_BASE}/move`, {
-                        game_id: gameId,
-                        timeout: true
-                    }, { headers: { Authorization: `Bearer ${token}` } });
-                    
-                    if (res.data.status) {
-                        setStatus(res.data.status);
-                        setReason(res.data.reason);
-                        playSound(res.data.status === "aborted" ? 'move' : 'game-end');
-                        localStorage.removeItem('chessGameId');
-                    }
-                } catch (err) { console.error("Timeout error:", err); }
-            }
-        }, 50);
-    }
-    return () => clearInterval(timer);
-}, [gameId, status, activeTimeColor, API_BASE, token, playSound, whiteTime, blackTime]);
+        let timer;
+        if (gameId && status === "ongoing" && activeTimeColor) {
+            const startTime = Date.now();
+            const startValue = activeTimeColor === 'w' ? whiteTime : blackTime;
+            timer = setInterval(async () => {
+                const now = Date.now();
+                const elapsed = (now - startTime) / 1000;
+                const newValue = Math.max(0, startValue - elapsed);
+                if (activeTimeColor === 'w') {
+                    setWhiteTime(newValue);
+                } else {
+                    setBlackTime(newValue);
+                }
+                if (newValue <= 0) {
+                    clearInterval(timer);
+                    setActiveTimeColor(null);
+                    try {
+                        const res = await axios.post(`${API_BASE}/move`, {
+                            game_id: gameId,
+                            timeout: true
+                        }, { headers: { Authorization: `Bearer ${token}` } });
+                        if (res.data.status) {
+                            setStatus(res.data.status);
+                            setReason(res.data.reason);
+                            playSound(res.data.status === "aborted" ? 'move' : 'game-end');
+                            localStorage.removeItem('chessGameId');
+                        }
+                    } catch (err) { console.error("Timeout error:", err); }
+                }
+            }, 50);
+        }
+        return () => clearInterval(timer);
+    }, [gameId, status, activeTimeColor, API_BASE, token, playSound]);
 
     // Figyelmeztető hang effektus
     useEffect(() => {
