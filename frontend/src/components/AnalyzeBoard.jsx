@@ -521,8 +521,22 @@ const handleFullReview = async () => {
         
             <div className="w-[480px] h-[744px] shrink-0 relative box-border">
             {rightPanelMode === 'setup' ? (
-            <SetUpPositionView onBack={() => setRightPanelMode('analysis')} />
-        ) : (
+            <SetUpPositionView 
+                onBack={() => setRightPanelMode('analysis')} 
+                currentFen={sandboxFen} // Átadjuk az aktuális állást
+                onFenChange={(newFen) => {
+                    try {
+                        const c = new Chess(newFen); // Validáljuk, hogy helyes-e a FEN
+                        setSandboxFen(newFen);
+                        setSandboxStartingFen(newFen); // Ez lesz az új kezdőpont
+                        setSandboxHistory([]); // Alaphelyzetbe állítjuk a történetet az új kezdőpontnál
+                        setSandboxLastMove({ from: null, to: null });
+                    } catch (e) {
+                            // Ha érvénytelen a FEN amit gépel, nem frissítünk
+                    }
+                }}
+            />
+            ) : (
             <AnalysisPanel 
                 history={sandboxHistory}
                 currentEval={currentEvalValue}
