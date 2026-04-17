@@ -28,14 +28,6 @@ def get_engine():
     if engine_singleton is None:
         try:
             engine_singleton = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            
-            # --- KONFIGURÁCIÓ A STABILITÁSHOZ ---
-            engine_singleton.configure({
-                "Threads": 2,      # Használj 2 szálat (gyors, de nem terheli le a gépedet teljesen)
-                "Hash": 256,       # 256 MB memória (segít, hogy emlékezzen a korábbi számításokra)
-            })
-            print("Stockfish sikeresen elindítva (Threads: 2, Hash: 256MB)")
-            
         except Exception as e:
             print(f"Hiba a Stockfish indításakor: {e}")
             raise e

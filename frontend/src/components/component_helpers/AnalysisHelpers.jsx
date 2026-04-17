@@ -2,8 +2,12 @@ import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import { moves as moveAssets } from '../../constants/review';
 
-export const AnalysisMenuItem = ({ icon, label }) => (
-    <div className="flex items-center justify-between p-3 hover:bg-[#312e2b] rounded-md cursor-pointer group transition-colors">
+// Hozzá kell adni az onClick-et a propokhoz és a div-hez is!
+export const AnalysisMenuItem = ({ icon, label, onClick }) => (
+    <div 
+        onClick={onClick} 
+        className="flex items-center justify-between p-3 hover:bg-[#312e2b] rounded-md cursor-pointer group transition-colors"
+    >
         <div className="flex items-center gap-3">
             <span className="text-[#bab9b8] group-hover:text-white">{icon}</span>
             <span className="text-sm font-bold text-[#bab9b8] group-hover:text-white">{label}</span>
@@ -11,7 +15,6 @@ export const AnalysisMenuItem = ({ icon, label }) => (
         <ChevronRight size={18} className="text-[#5c5a57]" />
     </div>
 );
-
 
 const EvalBox = ({ value }) => {
     const isMate = String(value).startsWith('M');

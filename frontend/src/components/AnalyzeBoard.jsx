@@ -5,6 +5,7 @@ import ChessBoardGrid from '../components/ChessBoardGrid';
 import AnalysisPanel from './AnalysisPanel';
 import { useChess } from '../context/ChessContext';
 import { Settings } from 'lucide-react';
+import SetUpPositionView from './component_helpers/SetUpPositionView';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
     
@@ -116,7 +117,8 @@ const AnalyzeBoard = () => {
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
     const [pendingPromotion, setPendingPromotion] = useState(null);
     const [previewFen, setPreviewFen] = useState(null);
-    // Az abszolút kezdőállás, amit referenciaként használunk
+    const [rightPanelMode, setRightPanelMode] = useState('analysis'); // 'analysis' vagy 'setup'
+    
 
     const {
         getSquareName, setSelectedSquare, setValidMoves, API_BASE,
@@ -438,7 +440,7 @@ const handleFullReview = async () => {
     const whiteBarHeight = Math.min(Math.max(50 + (currentEvalValue * 10), 5), 95);
 
     return (
-        <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] p-4 gap-12 overflow-hidden select-none font-sans justify-center items-center">
+        <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] px-6 py-4 gap-6 overflow-hidden select-none font-sans items-center">
             
             {/* EVAL BAR */}
             <div className="w-8 h-170 bg-[#262421] rounded-sm overflow-hidden flex flex-col-reverse relative border border-[#3c3a37] shrink-0 shadow-lg">
@@ -517,8 +519,10 @@ const handleFullReview = async () => {
                 </div>
             </div>
         
-
-            {/* PANEL */}
+            <div className="w-[480px] h-[744px] shrink-0 relative box-border">
+            {rightPanelMode === 'setup' ? (
+            <SetUpPositionView onBack={() => setRightPanelMode('analysis')} />
+        ) : (
             <AnalysisPanel 
                 history={sandboxHistory}
                 currentEval={currentEvalValue}
@@ -540,8 +544,12 @@ const handleFullReview = async () => {
                 onSaveClick={() => setIsSaveModalOpen(true)}
                 onNewClick={() => sandboxHistory.length > 0 && setIsNewModalOpen(true)}
                 onReviewClick={handleFullReview}
+                onSetupClick={() => setRightPanelMode('setup')} // Ez már jó volt
                 onHoverVariation={handleHoverVariation}
             />
+        )}
+            </div>
+            
   
 
             {/* SAVE MODAL */}

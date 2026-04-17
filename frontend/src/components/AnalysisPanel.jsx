@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { 
     LoadFromHistory, MakeMoves, ImportStudy, LoadFromFEN, 
-    SetUpPosition, New, Save, Review, LoadPrevious, GameCollections
+    SetUpPosition, New, Save, Review, LoadPrevious, GameCollections,
+    ChevronLeft,
+    ResetArrow, ChevronRight, ArrowChevronEnd
 } from './icons/Icons';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import EngineLineSimple from './component_helpers/EngineLineSimple';
@@ -29,6 +31,7 @@ const AnalysisPanel = ({
     viewIndex,   
     onViewMove,
     onReviewClick,
+    onSetupClick
 }) => {
     const currentMoveData = viewIndex === -1 
         ? history[history.length - 1] 
@@ -37,8 +40,6 @@ const AnalysisPanel = ({
     const isActive = history.length > 0;
     
     const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false, fen: null });
-    const [activeMenu, setActiveMenu] = useState('main'); 
-   
 
     const getAnalysisColor = (label) => {
         const key = label?.toLowerCase();
@@ -74,46 +75,43 @@ const AnalysisPanel = ({
     };
 
     return (
-        <div className="relative w-[480px] h-[calc(680px+64px)] bg-[#262421] rounded-lg flex flex-col shadow-xl border border-[#3c3a37] overflow-hidden font-sans">
+        <div className="relative w-[480px] h-[744px] bg-[#262421] rounded-lg flex flex-col shadow-xl border border-[#3c3a37] overflow-hidden font-sans">
             {!isActive ? (
-                /* HA NINCS LÉPÉS, VÁLASZTHATUNK MENÜT */
-                activeMenu === 'main' ? (
-                    <>
-                        <div className="p-4 border-b border-[#3c3a37] flex items-center justify-center gap-2 bg-[#21201d]">
-                            <New size={24} className="text-[#81b64c]" />
-                            <h2 className="font-bold uppercase tracking-widest text-sm text-white">Analysis</h2>
+                /* HA NINCS LÉPÉS, A KEZDŐMENÜT MUTATJUK */
+                <>
+                    <div className="p-4 border-b border-[#3c3a37] flex items-center justify-center gap-2 bg-[#21201d]">
+                        <New size={24} className="text-[#81b64c]" />
+                        <h2 className="font-bold uppercase tracking-widest text-sm text-white">Analysis</h2>
+                    </div>
+                    <div className="flex-1 pt-3 overflow-y-auto no-scrollbar">
+                        <AnalysisMenuItem icon={<MakeMoves size={24} />} label="Make Moves" />
+                        
+                        {/* A bekötött Set Up Position gomb */}
+                        <AnalysisMenuItem 
+                            icon={<SetUpPosition size={24} />} 
+                            label="Set Up Position" 
+                            onClick={onSetupClick} 
+                        />
+                        
+                        <AnalysisMenuItem icon={<GameCollections size={24} />} label="Game Collections" />
+                        <AnalysisMenuItem icon={<LoadFromHistory size={24} />} label="Load From Game History" />
+                        <AnalysisMenuItem icon={<ImportStudy size={24} />} label="Import Study" />
+                        <AnalysisMenuItem icon={<LoadFromFEN size={24} />} label="Load From FEN/PGN(s)" />
+                        
+                        <div className="px-4 mt-2 text-[#bab9b8]">
+                            <textarea className="w-full h-24 bg-[#161512] rounded p-2 text-xs focus:outline-none border border-[#3c3a37] resize-none" placeholder="Paste PGN here..." />
+                            <button className="w-full mt-2 py-2 flex items-center justify-center gap-2 bg-[#2b2a27] hover:bg-[#363430] rounded font-bold text-xs transition-colors border border-[#3c3a37]">
+                                <Upload size={14} /> Upload File
+                            </button>
                         </div>
-                        <div className="flex-1 pt-3 overflow-y-auto no-scrollbar">
-                            <AnalysisMenuItem icon={<MakeMoves size={24} />} label="Make Moves" />
-                            {/* JAVÍTOTT GOMB: Beállítja a setup nézetet */}
-                            <AnalysisMenuItem 
-                                icon={<SetUpPosition size={24} />} 
-                                label="Set Up Position" 
-                                onClick={() => setActiveMenu('setup')} 
-                            />
-                            <AnalysisMenuItem icon={<GameCollections size={24} />} label="Game Collections" />
-                            <AnalysisMenuItem icon={<LoadFromHistory size={24} />} label="Load From Game History" />
-                            <AnalysisMenuItem icon={<ImportStudy size={24} />} label="Import Study" />
-                            <AnalysisMenuItem icon={<LoadFromFEN size={24} />} label="Load From FEN/PGN(s)" />
-                            
-                            <div className="px-4 mt-2 text-[#bab9b8]">
-                                <textarea className="w-full h-24 bg-[#161512] rounded p-2 text-xs focus:outline-none border border-[#3c3a37] resize-none" placeholder="Paste PGN here..." />
-                                <button className="w-full mt-2 py-2 flex items-center justify-center gap-2 bg-[#2b2a27] hover:bg-[#363430] rounded font-bold text-xs transition-colors border border-[#3c3a37]">
-                                    <Upload size={14} /> Upload File
-                                </button>
-                            </div>
-                            <div className="mt-4 px-4">
-                                <button className="w-full py-3 bg-[#81b64c] hover:bg-[#95c95c] text-white font-black rounded-md shadow-lg transition-colors uppercase text-sm">Add Game(s)</button>
-                            </div>
-                            <div className="mt-2 mb-4">
-                                <AnalysisMenuItem icon={<LoadPrevious size={18} />} label="Load Previous Analysis" />
-                            </div>
+                        <div className="mt-4 px-4">
+                            <button className="w-full py-3 bg-[#81b64c] hover:bg-[#95c95c] text-white font-black rounded-md shadow-lg transition-colors uppercase text-sm">Add Game(s)</button>
                         </div>
-                    </>
-                ) : (
-                    /* --- SETUP POSITION NÉZET --- */
-                    <SetUpPositionView onBack={() => setActiveMenu('main')} />
-                )
+                        <div className="mt-2 mb-4">
+                            <AnalysisMenuItem icon={<LoadPrevious size={18} />} label="Load Previous Analysis" />
+                        </div>
+                    </div>
+                </>
             ) : (
                 /* --- AKTÍV ELEMZŐ NÉZET (HA MÁR VANNAK LÉPÉSEK) --- */
                 <>
@@ -186,18 +184,19 @@ const AnalysisPanel = ({
 
             {/* FIX FOOTER - Mindig látható */}
             <div className="p-2 bg-[#21201d] rounded-b-lg border-t border-[#3c3a37]">
-                <div className="flex justify-between gap-1 mb-3 px-1">
-                    <ControlBtn icon="|<" onClick={() => onViewMove(0)} />
-                    <ControlBtn icon="<" onClick={() => onViewMove(viewIndex === -1 ? history.length - 2 : viewIndex - 1)} />
-                    <ControlBtn icon=">" onClick={() => onViewMove(viewIndex === -1 ? -1 : viewIndex + 1)} />
-                    <ControlBtn icon=">|" onClick={() => onViewMove(-1)} />
+                <div className="flex justify-between gap-1 mb-3 px-1 h-12">
+                    <ControlBtn icon={<ResetArrow size={20} />} onClick={() => onViewMove(0)} />
+                    <ControlBtn icon={<ChevronLeft size={20} />} onClick={() => onViewMove(viewIndex === -1 ? history.length - 2 : viewIndex - 1)} />
+                    <ControlBtn icon={<ChevronRight size={20} />} onClick={() => onViewMove(viewIndex === -1 ? -1 : viewIndex + 1)} />
+                    <ControlBtn icon={<ArrowChevronEnd size={20} />} onClick={() => onViewMove(-1)} />
                 </div>
-                <div className="flex justify-around items-center text-[#8b8987] pb-1">
-                    {/* onClick={onNewClick} -> megnyitja a popupot az AnalyzeBoard-ban */}
-                    <FooterAction icon={<New size={18} />} label="New" onClick={onNewClick} />
-                    <FooterAction icon={<Save size={18} />} label="Save" onClick={onSaveClick} />
-                    <FooterAction icon={<Review size={18} />} label="Review" onClick={onReviewClick} />
-                    <FooterAction icon={<MoreHorizontal size={18} />} label="" />
+                <div className="flex justify-center items-center text-[#8b8987] pb-1">
+                     <div className='flex gap-7'>
+                        <FooterAction icon={<New size={20} />} label="New" onClick={onNewClick} />
+                        <FooterAction icon={<Save size={20} />} label="Save" onClick={onSaveClick} />
+                        <FooterAction icon={<Review size={20} />} label="Review" onClick={onReviewClick} />
+                        <FooterAction icon={<MoreHorizontal size={20} />} label="" />
+                     </div>
                 </div>
             </div>
 
