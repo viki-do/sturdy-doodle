@@ -7,8 +7,7 @@ import {
 import { 
     LoadFromHistory, MakeMoves, ImportStudy, LoadFromFEN, 
     SetUpPosition, New, Save, Review, LoadPrevious, GameCollections,
-    ChevronLeft,
-    ResetArrow, ChevronRight, ArrowChevronEnd
+    ChevronLeft, ResetArrow, ChevronRight, ArrowChevronEnd
 } from './icons/Icons';
 import ChessBoardGrid from '../components/ChessBoardGrid';
 import EngineLineSimple from './component_helpers/EngineLineSimple';
