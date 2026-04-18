@@ -143,18 +143,32 @@ const Navbar = () => {
                     label="Learn"
                     active={isActive('/learn')}
                 />
-                <NavItem
-                    to="/analysis"
-                    icon={
-                        <img 
-                            src="/assets/moves/analysis.svg" 
-                            alt="Bots" 
-                            className="w-5 h-5 object-contain" 
-                        />
-                    }
-                    label="Analysis"
-                    active={isActive('/analysis')}
-                />
+    
+                <a 
+                    href="/analysis"
+                    onClick={(e) => {
+                        // Töröljük a cache-t a biztonság kedvéért még az újratöltés előtt
+                        localStorage.removeItem('chess_analysis_cache');
+                        // Ha már ott vagyunk, az href alapból újratöltené, de így biztosabb:
+                        if (window.location.pathname === '/analysis') {
+                            window.location.reload();
+                        }
+                    }}
+                    className="no-underline" // hogy ne legyen kék/aláhúzott
+                >
+                    <NavItem
+                        to="/analysis"
+                        icon={
+                            <img 
+                                src="/assets/moves/analysis.svg" 
+                                alt="Analysis" 
+                                className="w-5 h-5 object-contain" 
+                            />
+                        }
+                        label="Analysis"
+                        active={isActive('/analysis')}
+                    />
+                </a>
             </nav>
 
             {/* Footer Buttons */}

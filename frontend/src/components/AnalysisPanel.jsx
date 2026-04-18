@@ -30,16 +30,39 @@ const AnalysisPanel = ({
     viewIndex,   
     onViewMove,
     onReviewClick,
-    onSetupClick
+    onSetupClick,
+    currentFen,
+    initialAnalysis,
 }) => {
-    const currentMoveData = viewIndex === -1 
-        ? history[history.length - 1] 
-        : history[viewIndex];
 
-    const isActive = history.length > 0;
+    const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    
+    // 1. Határozzuk meg az aktív állapotot
+    const isActive = history.length > 0 || (currentFen && currentFen !== DEFAULT_FEN);
+
+    console.log("--- DEBUG 3: Panel kapott adatai ---"); //
+    console.log("History length:", history?.length); //
+    console.log("InitialAnalysis állapota:", initialAnalysis); //
+
+    const currentMoveData = history.length === 0 
+        ? (initialAnalysis ? { 
+            fen: currentFen, 
+            engine_lines: initialAnalysis.engineLines, 
+            eval: initialAnalysis.eval 
+          } : { fen: currentFen, engine_lines: [] })
+        : (viewIndex === -1 ? history[history.length - 1] : history[viewIndex]);
+
+    console.log("--- DEBUG 4: Végleges currentMoveData ---", currentMoveData); //
+    console.log("Kirajzolásra váró sorok száma:", currentMoveData?.engine_lines?.length || 0); //
+
+    // 3. Sötét kezdésének detektálása a prefixhez
+    const chess = new Chess(currentFen || DEFAULT_FEN);
+    const turn = chess.turn();
+    const isInitialMoveByBlack = turn === 'b' && history.length === 0;
     
     const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false, fen: null });
 
+   
     const getAnalysisColor = (label) => {
         const key = label?.toLowerCase();
         switch (key) {
@@ -145,11 +168,12 @@ const AnalysisPanel = ({
                                     />
                                 )}
 
+
                                 {(currentMoveData?.engine_lines || currentMoveData?.engineLines)?.map((line, idx) => (
                                     <EngineLineSimple 
                                         key={idx}
                                         eval={line.eval} 
-                                        moves={line.continuation} 
+                                        moves={isInitialMoveByBlack ? `1... ${line.continuation}` : line.continuation}
                                         onMouseEnter={(e) => {
                                             const fen = getVariationFen(line.pv_uci);
                                             setTooltip({ x: e.clientX, y: e.clientY, visible: true, fen });

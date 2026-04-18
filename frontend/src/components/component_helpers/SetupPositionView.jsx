@@ -26,7 +26,8 @@ const SetUpPositionView = ({
     onViewMove,
     onReviewClick,
     currentFen,
-    onFenChange
+    onFenChange,
+    onLoadConfirm
 }) => {
     // Lokális state a gépeléshez
     const [localFen, setLocalFen] = useState(currentFen);
@@ -121,7 +122,10 @@ const SetUpPositionView = ({
                         <textarea placeholder="[Event '?']..." className="w-full h-20 bg-[#161512] text-white p-2 rounded border border-[#3c3a37] text-xs font-mono resize-none focus:border-[#81b64c] outline-none" />
                     </div>
 
-                    <button className="w-full mt-6 py-3 bg-[#81b64c] hover:bg-[#95c95c] text-white font-black rounded shadow-lg transition-colors uppercase text-sm mb-4">
+                    <button 
+                        onClick={() => onLoadConfirm(localFen)} // Meghívjuk a véglegesítő függvényt
+                        className="w-full mt-6 py-3 bg-[#81b64c] hover:bg-[#95c95c] text-white font-black rounded shadow-lg transition-colors uppercase text-sm mb-4"
+                    >
                         Load
                     </button>
                 </div>

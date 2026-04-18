@@ -100,7 +100,6 @@ const CapturedRow = ({ pieces, side, diff }) => {
 
 const AnalyzeBoard = () => {
     const chessContext = useChess();
-    
     const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     // --- ÁLLAPOTOK ---
     const [sandboxFen, setSandboxFen] = useState(DEFAULT_FEN);
@@ -118,6 +117,7 @@ const AnalyzeBoard = () => {
     const [pendingPromotion, setPendingPromotion] = useState(null);
     const [previewFen, setPreviewFen] = useState(null);
     const [rightPanelMode, setRightPanelMode] = useState('analysis'); // 'analysis' vagy 'setup'
+    const [initialAnalysis, setInitialAnalysis] = useState(null);
     
 
     const {
@@ -129,6 +129,7 @@ const AnalyzeBoard = () => {
 
    
     // --- PERSISTENCE ---
+    
     useEffect(() => {
     const saved = localStorage.getItem('chess_analysis_cache');
     if (saved) {
@@ -523,18 +524,58 @@ const handleFullReview = async () => {
             {rightPanelMode === 'setup' ? (
             <SetUpPositionView 
                 onBack={() => setRightPanelMode('analysis')} 
-                currentFen={sandboxFen} // Átadjuk az aktuális állást
+                currentFen={sandboxFen}
                 onFenChange={(newFen) => {
                     try {
-                        const c = new Chess(newFen); // Validáljuk, hogy helyes-e a FEN
+                        new Chess(newFen); 
                         setSandboxFen(newFen);
-                        setSandboxStartingFen(newFen); // Ez lesz az új kezdőpont
-                        setSandboxHistory([]); // Alaphelyzetbe állítjuk a történetet az új kezdőpontnál
-                        setSandboxLastMove({ from: null, to: null });
-                    } catch (e) {
-                            // Ha érvénytelen a FEN amit gépel, nem frissítünk
-                    }
+                        // Itt MÉG NEM töröljük a history-t, hogy gépelés közben ne villogjon
+                    } catch (e) {}
                 }}
+    
+                onLoadConfirm={async (finalFen) => {
+                const chess = new Chess(finalFen);
+                const turn = chess.turn();
+                const moveNumber = Math.floor(chess.moveNumber());
+
+                setSandboxStartingFen(finalFen);
+                setSandboxFen(finalFen);
+                setSandboxLastMove({ from: null, to: null });
+                setViewIndex(-1);
+                setOpeningName("");
+                setInitialAnalysis(null);
+                setSandboxHistory([]); 
+                setRightPanelMode('analysis');
+                setIsAnalyzing(true);
+                try {
+                    // 2. Elemzés kérése
+                    const res = await axios.post(`${API_BASE}/analyze-sandbox-move`, {
+                        fen_before: finalFen, 
+                        move: null,
+                        prev_eval: 0
+                    }, { headers: { Authorization: `Bearer ${token}` } });
+
+                    if (res.data) {
+                        // 3. Eredmények elmentése
+                        setInitialAnalysis({
+                            eval: res.data.eval / 100,
+                            engineLines: res.data.engine_lines || []
+                        });
+
+                        if (res.data.opening) {
+                            setOpeningName(res.data.opening?.name || res.data.opening || "");
+                        }
+                    }
+                    
+                    console.log(`Betöltve és elemezve: ${turn === 'w' ? 'Világos' : 'Sötét'} következik.`);
+
+                } catch (err) {
+                    console.error("Hiba a betöltés utáni elemzésnél:", err);
+                } finally {
+                    setIsAnalyzing(false);
+                }
+            }}
+
             />
             ) : (
             <AnalysisPanel 
@@ -555,6 +596,8 @@ const handleFullReview = async () => {
                         setViewIndex(-1);
                     }
                 }}
+                currentFen={sandboxFen}
+                initialAnalysis={initialAnalysis}
                 onSaveClick={() => setIsSaveModalOpen(true)}
                 onNewClick={() => sandboxHistory.length > 0 && setIsNewModalOpen(true)}
                 onReviewClick={handleFullReview}

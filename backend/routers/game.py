@@ -228,53 +228,74 @@ def get_opening_with_fallback(db: Session, game_id: uuid.UUID):
 
 @router.post("/analyze-sandbox-move")
 def analyze_sandbox_move(data: dict):
-    fen_before = data.get("fen_before")
-    move_san = data.get("move")
-    prev_eval = data.get("prev_eval", 30)
-    
-    board = chess.Board(fen_before)
-    engine = get_engine()
-    
-    # --- KRITIKUS JAVÍTÁS: Használjuk a coach mélyelemzését ---
-    # Ez visszaadja a Multi-PV engine_lines-t is!
-    deep_res = coach.analyze_position_deep(board, engine, depth=20, multipv=3)
-    
     try:
-        player_move = board.parse_san(move_san)
+        fen_before = data.get("fen_before")
+        move_san = data.get("move")
+        prev_eval = data.get("prev_eval", 30)
         
-        # Megnyitás ellenőrzés a lépés után
+        board = chess.Board(fen_before)
+        engine = get_engine()
+        
+        # Alapértelmezett üres válasz struktúra
+        deep_res = {"eval": prev_eval, "best_move": "", "engine_lines": [], "raw_analysis": []}
+        
+        # Mélyelemzés megkísérlése
+        try:
+            deep_res = coach.analyze_position_deep(board, engine, depth=20, multipv=3)
+        except Exception as e:
+            print(f"Mélyelemzési hiba: {e}")
+
+        # Ha nincs lépés (LOAD gomb)
+        if not move_san:
+            try:
+                opening_data = find_opening_by_fen(board.fen())
+            except:
+                opening_data = None
+                
+            return {
+                "label": "best", 
+                "eval": deep_res.get("eval", prev_eval),
+                "best_move": deep_res.get("best_move", ""),
+                "opening": opening_data,
+                "engine_lines": deep_res.get("engine_lines", [])
+            }
+
+        # Ha van lépés (normál működés)
+        player_move = board.parse_san(move_san)
         temp_board = board.copy()
         temp_board.push(player_move)
-        opening_data = find_opening_by_fen(temp_board.fen())
-        is_book = opening_data is not None
+        
+        opening_data = None
+        try:
+            opening_data = find_opening_by_fen(temp_board.fen())
+        except:
+            pass
 
-        # Osztályozás (átadjuk a nyers analízis listát a motorból)
         label, move_eval = coach.classify_move(
             board, 
             player_move, 
-            deep_res["raw_analysis"], 
+            deep_res.get("raw_analysis", []), 
             prev_eval, 
-            is_book=is_book
+            is_book=(opening_data is not None)
         )
         
-        # Most már minden adatot visszaküldünk!
         return {
             "label": label,
             "eval": move_eval,
-            "best_move": deep_res["best_move"],
+            "best_move": deep_res.get("best_move", ""),
             "opening": opening_data,
-            "engine_lines": deep_res["engine_lines"] # <--- EZ HIÁNYZOTT!
+            "engine_lines": deep_res.get("engine_lines", [])
         }
+
     except Exception as e:
-        print(f"Sandbox hiba: {e}")
+        print(f"KRITIKUS Sandbox hiba: {e}")
         return {
             "label": "best", 
-            "eval": prev_eval, 
+            "eval": 0, 
             "best_move": "", 
             "opening": None, 
             "engine_lines": []
         }
-
 @router.post("/analyze-full-game-sandbox")
 def analyze_full_game_sandbox(data: dict):
     moves_list = data.get("moves", [])
