@@ -59,6 +59,24 @@ const AnalysisPanel = ({
 
     const isFirstMoveBlack = startsWithBlack && history.length > 0;
 
+    const getDisplayLines = () => {
+        // 1. Ha éppen egy múltbéli lépést nézünk a history-ban
+        if (viewIndex !== -1 && history[viewIndex]) {
+            return history[viewIndex].engineLines || history[viewIndex].engine_lines || [];
+        }
+        // 2. Ha az aktuális (legutolsó) lépésnél vagyunk a history-ban
+        if (history.length > 0 && viewIndex === -1) {
+            return history[history.length - 1].engineLines || history[history.length - 1].engine_lines || [];
+        }
+        // 3. Ha NINCS history (most töltöttünk be FEN-t), de van initialAnalysis
+        if (history.length === 0 && initialAnalysis) {
+            return initialAnalysis.engineLines || [];
+        }
+        return [];
+    };
+
+    const engineLinesToDisplay = getDisplayLines();
+
 
    
     const getAnalysisColor = (label) => {
@@ -167,13 +185,11 @@ const AnalysisPanel = ({
                                 )}
 
 
-                                {(currentMoveData?.engine_lines || currentMoveData?.engineLines)?.map((line, idx) => (
+                                {engineLinesToDisplay.map((line, idx) => (
                                     <EngineLineSimple 
                                         key={idx}
                                         eval={line.eval} 
-                                        // JAVÍTÁS: A prefixnek CSAK akkor kell megjelennie, ha a history üres ÉS sötét jön,
-                                        // VAGY ha éppen a sötét kezdőlépését elemezzük a betöltés után.
-                                        moves={startsWithBlack && history.length === 0 ? `1... ${line.continuation}` : line.continuation} 
+                                        moves={line.continuation} 
                                         onMouseEnter={(e) => {
                                             const fen = getVariationFen(line.pv_uci);
                                             setTooltip({ x: e.clientX, y: e.clientY, visible: true, fen });

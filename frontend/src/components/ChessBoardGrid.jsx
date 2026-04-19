@@ -7,7 +7,7 @@ const piecesMap = {
     'R': 'white_rook', 'N': 'white_knight', 'B': 'white_bishop', 'Q': 'white_queen', 'K': 'white_king', 'P': 'white_pawn'
 };
 
-const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
+const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp, onDrop }) => {
     const boardRef = useRef(null); // Ref a táblához a passzív eseménykezelő fixhez
 
     const {
@@ -94,6 +94,14 @@ const ChessBoardGrid = ({ gameLogic, onMouseDown, onMouseUp }) => {
                     key={sqName}
                     onMouseDown={(e) => onMouseDown(e, i, j)}
                     onMouseUp={() => handleMouseUp()} 
+                    onDragOver={(e) => {
+                        e.preventDefault(); // Kötelező: engedélyezi a dobást
+                        e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        if (onDrop) onDrop(e, i, j); // Meghívjuk a szülő handleExternalDrop függvényét
+                    }}
                     onTouchStart={(e) => onMouseDown(e, i, j)}
                     onTouchEnd={(e) => {
                         handleMouseUp();

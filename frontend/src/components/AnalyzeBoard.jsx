@@ -55,6 +55,7 @@ const CapturedRow = ({ pieces, side, diff }) => {
         return acc;
     }, {});
 
+
     // Meghatározzuk a fix sorrendet (gyalogtól a vezérig)
     const order = ['p', 'n', 'b', 'r', 'q'];
 
@@ -118,14 +119,20 @@ const AnalyzeBoard = () => {
     const [previewFen, setPreviewFen] = useState(null);
     const [rightPanelMode, setRightPanelMode] = useState('analysis'); // 'analysis' vagy 'setup'
     const [initialAnalysis, setInitialAnalysis] = useState(null);
+    const [selectedSetupPiece, setSelectedSetupPiece] = useState(null); // 'P', 'k', stb.
     
 
     const {
         getSquareName, setSelectedSquare, setValidMoves, API_BASE,
         selectedSquare, validMoves, isDragging, setIsDragging,
         token, playSound, setMousePos, setDragOffset, 
-        setHoverSquare, hoverSquare
+        setHoverSquare, hoverSquare, mousePos
     } = chessContext;
+
+    const getPieceName = (p) => {
+    const names = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+    return names[p.toLowerCase()];
+};
 
    
     // --- PERSISTENCE ---
@@ -350,35 +357,102 @@ const handleFullReview = async () => {
     }
 };
     const handleMouseDown = (e, row, col) => {
-        if (previewFen) return; // Zárolás preview alatt
+    if (previewFen) return;
 
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const square = getSquareName(row, col);
+    const square = getSquareName(row, col);
+
+    // --- DEBUG LOGOK ---
+    console.log("--- CLICK DEBUG ---");
+    console.log("Mező:", square);
+    console.log("Panel mód (rightPanelMode):", rightPanelMode);
+    console.log("Kijelölt Setup bábu (selectedSetupPiece):", selectedSetupPiece);
+
+    // --- SETUP MÓD LOGIKA ---
+    // Akkor fut le, ha a 'setup' nézetben vagyunk ÉS van kiválasztott bábu a katalógusból
+    if (rightPanelMode === 'setup' && selectedSetupPiece) {
+        console.log("=> SETUP ACTION: Bábu elhelyezése...");
+        
         const chess = new Chess(sandboxFen);
-        const piece = chess.get(square);
+        
+        // Meghatározzuk a bábu típusát és színét (Nagybetű = Világos, Kisbetű = Sötét)
+        const type = selectedSetupPiece.toLowerCase();
+        const color = selectedSetupPiece === selectedSetupPiece.toUpperCase() ? 'w' : 'b';
 
-        if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
-            executeAnalysisMove(selectedSquare, square);
-            return;
+        // Eltávolítjuk a mezőn lévő esetleges régi bábut, és letesszük az újat
+        chess.remove(square);
+        const success = chess.put({ type, color }, square);
+
+        if (success) {
+            const newFen = chess.fen();
+            console.log("=> SIKER: Új FEN generálva:", newFen);
+            
+            setSandboxFen(newFen);
+            // Setup módban a kiinduló állást is frissítjük, hogy az elemzés alapja ez legyen
+            setSandboxStartingFen(newFen); 
+            
+            playSound('move');
+        } else {
+            console.error("=> HIBA: A chess.put nem sikerült ezen a mezőn!");
         }
 
-        if (piece) {
-            setMousePos({ x: clientX, y: clientY });
-            setSelectedSquare(square);
-            setHoverSquare(square);
-            setIsDragging(true);
+        return; // MEGSZAKÍTJUK a függvényt, hogy ne induljon el a normál drag & drop
+    }
 
-            const moves = chess.moves({ square, verbose: true }).map(m => m.to);
-            setValidMoves(moves);
+    // --- EREDETI DRAG & DROP LOGIKA ---
+    // Ez csak akkor fut le, ha NEM setup módban vagyunk, vagy nincs kijelölt bábu
+    console.log("=> NORMÁL MÓD: Lépéskezelés indítása...");
 
-            const rect = e.currentTarget.getBoundingClientRect();
-            setDragOffset({ 
-                x: clientX - (rect.left + rect.width / 2), 
-                y: clientY - (rect.top + rect.height / 2) 
-            });
-        }
-    };
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const chess = new Chess(sandboxFen);
+    const piece = chess.get(square);
+
+    // Ha már van kijelölt mezőnk és egy érvényes célmezőre kattintunk (kattintás-kattintás lépés)
+    if (selectedSquare && selectedSquare !== square && validMoves.includes(square)) {
+        executeAnalysisMove(selectedSquare, square);
+        return;
+    }
+
+    // Ha egy bábura kattintunk, elindítjuk a vonszolást (drag)
+    if (piece) {
+        setMousePos({ x: clientX, y: clientY });
+        setSelectedSquare(square);
+        setHoverSquare(square);
+        setIsDragging(true);
+
+        // Kiszámoljuk az érvényes lépéseket a vizuális visszajelzéshez
+        const moves = chess.moves({ square, verbose: true }).map(m => m.to);
+        setValidMoves(moves);
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        setDragOffset({ 
+            x: clientX - (rect.left + rect.width / 2), 
+            y: clientY - (rect.top + rect.height / 2) 
+        });
+    }
+};
+
+    // AnalyzeBoard.jsx
+const handleExternalDrop = (e, row, col) => {
+    e.preventDefault();
+    // Megszerezzük a bábu típusát a dataTransfer objektumból
+    const piece = e.dataTransfer.getData("chess-piece");
+    if (!piece) return;
+
+    const square = getSquareName(row, col);
+    const chess = new Chess(sandboxFen);
+    
+    const type = piece.toLowerCase();
+    const color = piece === piece.toUpperCase() ? 'w' : 'b';
+
+    // Tábla frissítése: régi törlése, új lerakása
+    chess.remove(square);
+    chess.put({ type, color }, square);
+
+    const newFen = chess.fen();
+    setSandboxFen(newFen);
+    setSandboxStartingFen(newFen);
+};
 
     const handleMouseUp = useCallback(async () => {
         if (!isDragging || !selectedSquare) return;
@@ -443,7 +517,13 @@ const handleFullReview = async () => {
     const whiteBarHeight = Math.min(Math.max(50 + (currentEvalValue * 10), 5), 95);
 
     return (
-        <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] px-6 py-4 gap-6 overflow-hidden select-none font-sans items-center">
+        <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] px-6 py-4 gap-6 overflow-hidden select-none font-sans items-center"
+            onDragOver={(e) => {
+                // Ez engedélyezi, hogy az egész képernyőn kövessük az egeret
+                e.preventDefault();
+                setMousePos({ x: e.clientX, y: e.clientY });
+            }}
+        >
             
             {/* EVAL BAR */}
             <div className="w-8 h-170 bg-[#262421] rounded-sm overflow-hidden flex flex-col-reverse relative border border-[#3c3a37] shrink-0 shadow-lg">
@@ -457,7 +537,10 @@ const handleFullReview = async () => {
             {/* TÁBLA SZEKCIÓ */}
             <div className="flex flex-col justify-center items-center gap-2">
                 {/* BLACK PLAYER INFO */}
-                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#8b8987]">
+                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#8b8987]" onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+        }}>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center gap-2">
                             <div className="w-6 h-6 bg-[#262421] rounded flex items-center justify-center italic text-xs border border-white/5 font-bold">B</div>
@@ -472,7 +555,17 @@ const handleFullReview = async () => {
                     <Settings size={18} className="cursor-pointer hover:text-white transition-colors" />
                 </div>
 
-                <div id="chess-board" className="w-170 h-170 relative shadow-2xl shadow-black/50">
+                <div 
+                    id="chess-board" 
+                    className="w-170 h-170 relative shadow-2xl"
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        // Kényszerítjük a 'move' (vagy 'copy') kurzort a tiltás helyett
+                        e.dataTransfer.dropEffect = "move"; 
+                        setMousePos({ x: e.clientX, y: e.clientY });
+                        if (!isDragging) setIsDragging(true);
+                    }}
+                >
                     <ChessBoardGrid 
                         gameLogic={{ 
                             ...chessContext, 
@@ -482,13 +575,14 @@ const handleFullReview = async () => {
                             isFlipped,
                             viewIndex,
                             status: previewFen ? "viewing" : "ongoing",
-                            handleMouseUp: handleMouseUp 
+                            handleMouseUp: handleMouseUp,
                         }} 
                         onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp} 
+                        onMouseUp={handleMouseUp}
+                        onDrop={(e, row, col) => handleExternalDrop(e, row, col)}
                     />
 
-                    {/* Promóció */}
+                    {/* Promóció kezelése */}
                     {pendingPromotion && (
                         <div className="absolute z-[5000] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
                             style={{
@@ -498,8 +592,17 @@ const handleFullReview = async () => {
                                 width: '12.5%'
                             }}>
                             {['q', 'n', 'r', 'b'].map((type) => (
-                                <button key={type} onClick={() => executeAnalysisMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
-                                    <img src={`/assets/pieces/${sandboxFen.split(' ')[1] === 'w' ? 'white' : 'black'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
+                                <button 
+                                    key={type} 
+                                    onClick={() => executeAnalysisMove(pendingPromotion.from, pendingPromotion.to, type)} 
+                                    className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100"
+                                >
+                                    <img 
+                                        src={`/assets/pieces/${sandboxFen.split(' ')[1] === 'w' ? 'white' : 'black'}_${
+                                            type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'
+                                        }.png`} 
+                                        alt={type} 
+                                    />
                                 </button>
                             ))}
                         </div>
@@ -525,8 +628,16 @@ const handleFullReview = async () => {
             <div className="w-[480px] h-[744px] shrink-0 relative box-border">
             {rightPanelMode === 'setup' ? (
             <SetUpPositionView 
-                onBack={() => setRightPanelMode('analysis')} 
+                onBack={() => {
+                    setRightPanelMode('analysis');
+                    setSelectedSetupPiece(null);
+                    setIsDragging(false);
+                }}
                 currentFen={sandboxFen}
+                selectedPiece={selectedSetupPiece}
+                setIsDragging={setIsDragging}
+                isDragging={isDragging}
+                onPieceSelect={setSelectedSetupPiece}
                 onFenChange={(newFen) => {
                     try {
                         new Chess(newFen); 
@@ -608,6 +719,38 @@ const handleFullReview = async () => {
             />
         )}
             </div>
+
+            <AnimatePresence>
+            {isDragging && selectedSetupPiece && (
+                <motion.img
+                    key="global-dragging-piece"
+                    src={`/assets/pieces/${
+                        // Itt használd a korábban definiált piecesMap-et vagy logikát
+                        selectedSetupPiece === selectedSetupPiece.toUpperCase() 
+                        ? `white_${getPieceName(selectedSetupPiece)}` 
+                        : `black_${getPieceName(selectedSetupPiece)}`
+                    }.png`}
+                    className="pointer-events-none fixed"
+                    style={{
+                        width: '75px',
+                        height: '75px',
+                        zIndex: 999999, // Minden felett
+                        left: 0,
+                        top: 0,
+                        filter: 'drop-shadow(0px 10px 15px rgba(0,0,0,0.5))'
+                    }}
+                    animate={{ 
+                        x: mousePos.x - 37.5,
+                        y: mousePos.y - 37.5,
+                        scale: 1.1
+                    }}
+                    transition={{ type: "tween", ease: "linear", duration: 0 }}
+                    exit={{ opacity: 0 }}
+                />
+            )}
+        </AnimatePresence>
+
+        
             
   
 
@@ -695,6 +838,8 @@ const handleFullReview = async () => {
         </AnimatePresence>
         </div>
     );
+
+    
 };
 
 export default AnalyzeBoard;

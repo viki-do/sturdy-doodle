@@ -17,6 +17,9 @@ import {
     FooterAction 
 } from './AnalysisHelpers';
 
+const transparentPixel = new Image();
+transparentPixel.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 const SetUpPositionView = ({ 
     onBack, 
     history = [], 
@@ -27,28 +30,76 @@ const SetUpPositionView = ({
     onReviewClick,
     currentFen,
     onFenChange,
-    onLoadConfirm
+    onLoadConfirm,
+    onPieceSelect,
+    setIsDragging,
+    isDragging
 }) => {
     // Lokális state a gépeléshez
     const [localFen, setLocalFen] = useState(currentFen);
+    const [turn, setTurn] = useState('w');
+    const [castling, setCastling] = useState({
+        wOO: true, wOOO: true, bOO: true, bOOO: true
+    })
+    const [selectedPiece, setSelectedPiece] = useState(null); // pl. 'P' vagy 'q'
 
-    // Ha a táblán lépnek (vagy kívülről változik a FEN), frissítjük a kijelzőt
+    const placePieceOnBoard = (square) => {
+    if (!selectedPiece) return;
+    
+    try {
+        const c = new Chess(localFen);
+        // Ha ugyanazt a bábut rakjuk le, ami ott van, akkor "töröljük" (opcionális)
+        // c.put({ type: ..., color: ... }, square)
+        
+        // A chess.js-nél a put() metódus kell:
+        const type = selectedPiece.toLowerCase();
+        const color = selectedPiece === selectedPiece.toUpperCase() ? 'w' : 'b';
+        
+        c.remove(square); // Előbb töröljük ami ott volt
+        c.put({ type, color }, square);
+        
+        const newFen = c.fen();
+        setLocalFen(newFen);
+        onFenChange(newFen);
+    } catch (e) {
+        console.error("Hiba a bábu elhelyezésekor", e);
+    }
+};
+
+
+
+     const syncUIWithFen = (fen) => {
+        try {
+            const c = new Chess(fen);
+            setTurn(c.turn());
+            
+            const fenParts = fen.split(' ');
+            const castlingPart = fenParts[2] || '';
+            
+            setCastling({
+                wOO: castlingPart.includes('K'),
+                wOOO: castlingPart.includes('Q'),
+                bOO: castlingPart.includes('k'),
+                bOOO: castlingPart.includes('q')
+            });
+        } catch (e) {
+            // Érvénytelen FEN-nél nem frissítjük a UI-t
+        }
+    };
+
     useEffect(() => {
         setLocalFen(currentFen);
+        syncUIWithFen(currentFen);
     }, [currentFen]);
 
-    // JAVÍTOTT gépelés kezelés
     const handleInputChange = (e) => {
         const newFen = e.target.value;
-        setLocalFen(newFen); // Engedjük a gépelést (lokális state frissül)
-
+        setLocalFen(newFen);
         try {
-            const c = new Chess(newFen); // Ellenőrizzük, érvényes-e
-            onFenChange(newFen); // Ha igen, szólunk a szülőnek (tábla frissül)
-        } catch (err) {
-            // Ha érvénytelen (pl. épp törli a számot a végéről), 
-            // a tábla nem frissül, de a gépelést engedjük tovább.
-        }
+            new Chess(newFen);
+            syncUIWithFen(newFen); // Frissítjük a gombokat/választót
+            onFenChange(newFen);
+        } catch (err) {}
     };
 
     return (
@@ -76,18 +127,63 @@ const SetUpPositionView = ({
 
             {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto no-scrollbar">
-                <div className="grid grid-cols-6 gap-2 bg-[#454442] p-4">
-                    {['p','b','n','r','q','k'].map(p => (
-                        <img key={p} src={`/assets/pieces/black_${p === 'p' ? 'pawn' : p === 'n' ? 'knight' : p === 'b' ? 'bishop' : p === 'r' ? 'rook' : p === 'q' ? 'queen' : 'king'}.png`} className="cursor-grab scale-125 mx-auto" alt="" />
-                    ))}
-                    {['P','B','N','R','Q','K'].map(p => (
-                        <img key={p} src={`/assets/pieces/white_${p === 'P' ? 'pawn' : p === 'N' ? 'knight' : p === 'B' ? 'bishop' : p === 'R' ? 'rook' : p === 'Q' ? 'queen' : 'king'}.png`} className="cursor-grab scale-125 mx-auto" alt="" />
-                    ))}
+        
+                <div 
+                className="grid grid-cols-6 gap-2 bg-[#454442] p-4"
+                onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                }}
+                >
+                    {['p','b','n','r','q','k', 'P','B','N','R','Q','K'].map(p => {
+                    // Akkor rejtjük el, ha vonszolás van ÉS ez az a bábu
+                    const isActuallyDraggingThis = isDragging && selectedPiece === p;
+
+                    return (
+                        <div 
+                            key={p}
+                            onClick={() => onPieceSelect(selectedPiece === p ? null : p)}
+                            className={`p-1 rounded cursor-pointer transition-all ${
+                                selectedPiece === p ? 'bg-[#ffff33]' : 'hover:bg-white/10'
+                            }`}
+                        >
+                            <img 
+                                src={`/assets/pieces/${p === p.toLowerCase() ? 'black' : 'white'}_${
+                            p.toLowerCase() === 'p' ? 'pawn' : p.toLowerCase() === 'n' ? 'knight' : 
+                            p.toLowerCase() === 'b' ? 'bishop' : p.toLowerCase() === 'r' ? 'rook' : 
+                            p.toLowerCase() === 'q' ? 'queen' : 'king'
+                        }.png`} 
+                        className={`scale-125 mx-auto transition-opacity duration-75 ${
+                // HA vonszoljuk ÉS ez az a bábu, akkor eltűnik a rácsból
+                (isDragging && selectedPiece === p) ? 'opacity-0' : 'opacity-100'
+                    }`} 
+                    draggable="true"
+                    onDragStart={(e) => {
+                        e.dataTransfer.setData("chess-piece", p);
+                        onPieceSelect(p); 
+                        setIsDragging(true); 
+                        if (transparentPixel.complete) {
+                            e.dataTransfer.setDragImage(transparentPixel, 0, 0);
+                        }
+                    }}
+                    onDragEnd={() => setIsDragging(false)}
+                            />
+                        </div>
+                    );
+                })}
                 </div>
 
                 <div className='px-4 flex flex-col'>
                     <div className="py-4 flex items-center gap-4">
-                        <select className="flex-1 bg-[#161512] text-white p-2 rounded border border-[#3c3a37] text-sm focus:outline-none cursor-pointer">
+                        <select 
+                            value={turn === 'w' ? "White to move" : "Black to move"}
+                            onChange={(e) => {
+                                const newTurn = e.target.value === "White to move" ? 'w' : 'b';
+                                // Itt elméletileg módosítani kéne a FEN stringet is, ha a felhasználó kézzel vált
+                                setTurn(newTurn);
+                            }}
+                            className="flex-1 bg-[#161512] text-white p-2 rounded border border-[#3c3a37] text-sm focus:outline-none cursor-pointer"
+                        >
                             <option>White to move</option>
                             <option>Black to move</option>
                         </select>
@@ -101,13 +197,21 @@ const SetUpPositionView = ({
                     <div className="grid grid-cols-2 gap-4 text-xs text-[#bab9b8] py-3">
                         <div className="space-y-2">
                             <p className="font-bold text-white uppercase text-[10px]">White</p>
-                            <label className="flex items-center gap-2 cursor-pointer font-semibold"><input type="checkbox" defaultChecked className="accent-[#81b64c]" /> O-O</label>
-                            <label className="flex items-center gap-2 cursor-pointer font-semibold"><input type="checkbox" defaultChecked className="accent-[#81b64c]" /> O-O-O</label>
+                            <label className="flex items-center gap-2 cursor-pointer font-semibold">
+                                <input type="checkbox" checked={castling.wOO} readOnly className="accent-[#81b64c]" /> O-O
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer font-semibold">
+                                <input type="checkbox" checked={castling.wOOO} readOnly className="accent-[#81b64c]" /> O-O-O
+                            </label>
                         </div>
                         <div className="space-y-2">
                             <p className="font-bold text-white uppercase text-[10px]">Black</p>
-                            <label className="flex items-center gap-2 cursor-pointer font-semibold"><input type="checkbox" defaultChecked className="accent-[#81b64c]" /> O-O</label>
-                            <label className="flex items-center gap-2 cursor-pointer font-semibold"><input type="checkbox" defaultChecked className="accent-[#81b64c]" /> O-O-O</label>
+                            <label className="flex items-center gap-2 cursor-pointer font-semibold">
+                                <input type="checkbox" checked={castling.bOO} readOnly className="accent-[#81b64c]" /> O-O
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer font-semibold">
+                                <input type="checkbox" checked={castling.bOOO} readOnly className="accent-[#81b64c]" /> O-O-O
+                            </label>
                         </div>
                     </div>
 
