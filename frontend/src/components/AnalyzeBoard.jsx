@@ -650,6 +650,8 @@ const handleExternalDrop = (e, row, col) => {
                 const chess = new Chess(finalFen);
                 const turn = chess.turn();
                 const moveNumber = Math.floor(chess.moveNumber());
+                setIsDragging(false);
+                setSelectedSetupPiece(null);
 
                 setSandboxStartingFen(finalFen);
                 setSandboxFen(finalFen);
