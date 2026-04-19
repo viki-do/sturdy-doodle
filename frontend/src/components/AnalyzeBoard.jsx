@@ -184,80 +184,83 @@ const AnalyzeBoard = () => {
 
     // --- LÉPÉS VÉGREHAJTÁS ---
     const executeAnalysisMove = async (from, to, promotion = null) => {
-        if (viewIndex !== -1) {
-            const latest = sandboxHistory[sandboxHistory.length - 1];
-            if (latest) {
-                setSandboxFen(latest.fen);
-                setSandboxLastMove({ from: latest.from, to: latest.to });
-            }
-            setViewIndex(-1);
-            return; 
+    if (viewIndex !== -1) {
+        const latest = sandboxHistory[sandboxHistory.length - 1];
+        if (latest) {
+            setSandboxFen(latest.fen);
+            setSandboxLastMove({ from: latest.from, to: latest.to });
         }
+        setViewIndex(-1);
+        return; 
+    }
 
-        setSelectedSquare(null);
-        setValidMoves([]);
-        setHoverSquare(null);
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setHoverSquare(null);
 
-        const chess = new Chess(sandboxFen);
-        const fenBefore = sandboxFen;
-        const piece = chess.get(from);
+    const chess = new Chess(sandboxFen);
+    const fenBefore = sandboxFen; // Ezt használjuk referenciaként
+    const piece = chess.get(from);
 
-        if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
-            setPendingPromotion({ from, to });
-            setIsDragging(false);
-            return;
-        }
+    if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
+        setPendingPromotion({ from, to });
+        setIsDragging(false);
+        return;
+    }
 
-        const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
-        if (!moveAttempt) return;
+    const moveAttempt = chess.move({ from, to, promotion: promotion || 'q' });
+    if (!moveAttempt) return;
 
-        const newFen = chess.fen();
-        setSandboxFen(newFen);
-        setSandboxLastMove({ from, to });
-        setPendingPromotion(null);
+    const newFen = chess.fen();
+    setSandboxFen(newFen);
+    setSandboxLastMove({ from, to });
+    setPendingPromotion(null);
 
-        const tempMove = {
-            num: sandboxHistory.length,
-            m: moveAttempt.san,
-            from, to,
-            fen: newFen,
-            analysisLabel: null 
-        };
-        setSandboxHistory(prev => [...prev, tempMove]);
-        playSound(moveAttempt.captured ? 'capture' : 'move');
-
-        setIsAnalyzing(true);
-        try {
-            const prevEval = sandboxHistory.length > 0 
-                ? (sandboxHistory[sandboxHistory.length - 1].rawEval || 0) 
-                : 0;
-
-            const res = await axios.post(`${API_BASE}/analyze-sandbox-move`, {
-                fen_before: fenBefore, 
-                move: moveAttempt.san, 
-                prev_eval: prevEval
-            }, { headers: { Authorization: `Bearer ${token}` } });
-
-            setSandboxHistory(prev => prev.map((h, i) => 
-                i === prev.length - 1 ? {
-                    ...h,
-                    analysisLabel: res.data.label?.toLowerCase(),
-                    eval: res.data.eval / 100,
-                    rawEval: res.data.eval,
-                    bestMove: res.data.best_move,
-                    engineLines: res.data.engine_lines || [] 
-                } : h
-            ));
-
-            if (res.data.opening) {
-                setOpeningName(typeof res.data.opening === 'object' ? res.data.opening.name : res.data.opening);
-            }
-        } catch (err) {
-            console.error("Analysis error:", err);
-        } finally { 
-            setIsAnalyzing(false); 
-        }
+    // JAVÍTÁS: Hozzáadjuk a fen_before mezőt a mentett lépéshez
+    const tempMove = {
+        num: sandboxHistory.length,
+        m: moveAttempt.san,
+        from, to,
+        fen: newFen,
+        fen_before: fenBefore, // <--- EZT HIÁNYOLTA AZ ANALYSISPANEL
+        analysisLabel: null 
     };
+    
+    setSandboxHistory(prev => [...prev, tempMove]);
+    playSound(moveAttempt.captured ? 'capture' : 'move');
+
+    setIsAnalyzing(true);
+    try {
+        const prevEval = sandboxHistory.length > 0 
+            ? (sandboxHistory[sandboxHistory.length - 1].rawEval || 0) 
+            : 0;
+
+        const res = await axios.post(`${API_BASE}/analyze-sandbox-move`, {
+            fen_before: fenBefore, 
+            move: moveAttempt.san, 
+            prev_eval: prevEval
+        }, { headers: { Authorization: `Bearer ${token}` } });
+
+        setSandboxHistory(prev => prev.map((h, i) => 
+            i === prev.length - 1 ? {
+                ...h,
+                analysisLabel: res.data.label?.toLowerCase(),
+                eval: res.data.eval / 100,
+                rawEval: res.data.eval,
+                bestMove: res.data.best_move,
+                engineLines: res.data.engine_lines || [] 
+            } : h
+        ));
+
+        if (res.data.opening) {
+            setOpeningName(typeof res.data.opening === 'object' ? res.data.opening.name : res.data.opening);
+        }
+    } catch (err) {
+        console.error("Analysis error:", err);
+    } finally { 
+        setIsAnalyzing(false); 
+    }
+};
 
 const handleFullReview = async () => {
     console.log("--- DEBUG: Full Review Folyamat Elindult ---");
@@ -273,7 +276,6 @@ const handleFullReview = async () => {
     try {
         
         const moveList = sandboxHistory.map(h => h.m);
-        
         const startFen = typeof sandboxStartingFen !== 'undefined' && sandboxStartingFen 
             ? sandboxStartingFen 
             : 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

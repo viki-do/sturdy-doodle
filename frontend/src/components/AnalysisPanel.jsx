@@ -36,14 +36,12 @@ const AnalysisPanel = ({
 }) => {
 
     const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    
-    // 1. Határozzuk meg az aktív állapotot
+    const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false, fen: null });
+
+    const chess = new Chess(currentFen || DEFAULT_FEN);
+    const turn = chess.turn();
+
     const isActive = history.length > 0 || (currentFen && currentFen !== DEFAULT_FEN);
-
-    console.log("--- DEBUG 3: Panel kapott adatai ---"); //
-    console.log("History length:", history?.length); //
-    console.log("InitialAnalysis állapota:", initialAnalysis); //
-
     const currentMoveData = history.length === 0 
         ? (initialAnalysis ? { 
             fen: currentFen, 
@@ -52,15 +50,15 @@ const AnalysisPanel = ({
           } : { fen: currentFen, engine_lines: [] })
         : (viewIndex === -1 ? history[history.length - 1] : history[viewIndex]);
 
-    console.log("--- DEBUG 4: Végleges currentMoveData ---", currentMoveData); //
-    console.log("Kirajzolásra váró sorok száma:", currentMoveData?.engine_lines?.length || 0); //
+    const startsWithBlack = history.length > 0 && history[0].fen_before 
+        ? new Chess(history[0].fen_before).turn() === 'b'
+        : chess.turn() === 'b' && history.length === 0;
+    const startMoveNum = (history.length > 0 && history[0].fen_before)
+        ? new Chess(history[0].fen_before).moveNumber()
+        : chess.moveNumber();
 
-    // 3. Sötét kezdésének detektálása a prefixhez
-    const chess = new Chess(currentFen || DEFAULT_FEN);
-    const turn = chess.turn();
-    const isInitialMoveByBlack = turn === 'b' && history.length === 0;
-    
-    const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false, fen: null });
+    const isFirstMoveBlack = startsWithBlack && history.length > 0;
+
 
    
     const getAnalysisColor = (label) => {
@@ -173,7 +171,9 @@ const AnalysisPanel = ({
                                     <EngineLineSimple 
                                         key={idx}
                                         eval={line.eval} 
-                                        moves={isInitialMoveByBlack ? `1... ${line.continuation}` : line.continuation}
+                                        // JAVÍTÁS: A prefixnek CSAK akkor kell megjelennie, ha a history üres ÉS sötét jön,
+                                        // VAGY ha éppen a sötét kezdőlépését elemezzük a betöltés után.
+                                        moves={startsWithBlack && history.length === 0 ? `1... ${line.continuation}` : line.continuation} 
                                         onMouseEnter={(e) => {
                                             const fen = getVariationFen(line.pv_uci);
                                             setTooltip({ x: e.clientX, y: e.clientY, visible: true, fen });
@@ -190,14 +190,65 @@ const AnalysisPanel = ({
                             </div>
 
                             <div className="flex flex-col py-1 overflow-y-auto no-scrollbar flex-1 min-h-0">
-                                {Array.from({ length: Math.ceil(history.length / 2) }).map((_, i) => (
-                                    <div key={i} className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${viewIndex >= i * 2 && viewIndex <= i * 2 + 1 ? 'bg-[#ffffff03]' : ''}`}>
-                                        <span className="text-[12px] text-[#8b8987] font-mono select-none">{i + 1}.</span>
-                                        <MoveItem move={history[i * 2]} isActive={viewIndex === i * 2} onClick={() => onViewMove(i * 2)} isBlack={false} />
-                                        <MoveItem move={history[i * 2 + 1]} isActive={viewIndex === i * 2 + 1} onClick={() => onViewMove(i * 2 + 1)} isBlack={true} />
-                                    </div>
-                                ))}
-                            </div>
+                            {(() => {
+                                const rows = [];
+                                let hIdx = 0;
+
+                                // SPECIÁLIS ELSŐ SOR: Ha sötéttel indult a sandbox
+                                if (isFirstMoveBlack) {
+                                    rows.push(
+                                        <div key="row-0" className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${viewIndex === 0 ? 'bg-[#ffffff03]' : ''}`}>
+                                            <span className="text-[12px] text-[#8b8987] font-mono select-none">{startMoveNum}.</span>
+                                            {/* Világos helyén a három pont */}
+                                            <span className="text-[12px] text-[#8b8987] px-3 italic opacity-50">...</span>
+                                            {/* Sötét lépése (history[0]) - kötelezően isBlack={true} */}
+                                            <MoveItem 
+                                                move={history[0]} 
+                                                isActive={viewIndex === 0} 
+                                                onClick={() => onViewMove(0)} 
+                                                isBlack={true} 
+                                            />
+                                        </div>
+                                    );
+                                    hIdx = 1; // A folytatás a history[1]-től indul
+                                }
+
+                                // TÖBBI SOR: Kettesével haladunk
+                                for (let j = hIdx; j < history.length; j += 2) {
+                                    // A körszám számítása: ha sötéttel kezdtünk, a j=1 már az 51. kör világosa lesz
+                                    const displayNum = isFirstMoveBlack 
+                                        ? startMoveNum + Math.floor((j + 1) / 2)
+                                        : startMoveNum + Math.floor(j / 2);
+
+                                    rows.push(
+                                        <div key={`row-${j}`} className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${
+                                            (viewIndex === j || viewIndex === j + 1) ? 'bg-[#ffffff03]' : ''
+                                        }`}>
+                                            <span className="text-[12px] text-[#8b8987] font-mono select-none">{displayNum}.</span>
+                                            
+                                            {/* Világos oszlop: history[j] */}
+                                            <MoveItem 
+                                                move={history[j]} 
+                                                isActive={viewIndex === j} 
+                                                onClick={() => onViewMove(j)} 
+                                                isBlack={false} 
+                                            />
+
+                                            {/* Sötét oszlop: history[j+1] */}
+                                            {history[j+1] ? (
+                                                <MoveItem 
+                                                    move={history[j+1]} 
+                                                    isActive={viewIndex === j+1} 
+                                                    onClick={() => onViewMove(j+1)} 
+                                                    isBlack={true} 
+                                                />
+                                            ) : <div className="flex-1" />}
+                                        </div>
+                                    );
+                                }
+                                return rows;
+                            })()}
+                        </div>
                         </div>
                     </div>
                 )}
