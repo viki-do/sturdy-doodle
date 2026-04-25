@@ -52,14 +52,6 @@ const SetUpPositionView = ({
         return fenParts.join(' ');
     };
 
-    const updateFenTurn = (fen, nextTurn) => {
-        const fenParts = (fen || '').trim().split(/\s+/);
-        if (fenParts.length < 4) return fen;
-
-        fenParts[1] = nextTurn;
-        return fenParts.join(' ');
-    };
-
     const placePieceOnBoard = (square) => {
     if (!selectedPiece) return;
     
