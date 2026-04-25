@@ -84,7 +84,7 @@ export const EngineLineSpecial = ({ type, eval: ev, text, subtext, colorFn }) =>
 };
 
 
-export const MoveItem = ({ move, isActive, onClick, isBlack }) => {
+export const MoveItem = ({ move, isActive, onClick, isBlack, prefixText = '' }) => {
     if (!move) return <div className="flex-1" />;
     const asset = moveAssets[move.analysisLabel?.toLowerCase()];
     
@@ -101,6 +101,11 @@ export const MoveItem = ({ move, isActive, onClick, isBlack }) => {
                     isActive ? 'bg-[#3c3a37] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'
                 }`}
             >
+                {prefixText ? (
+                    <span className="mr-1 text-[12px] text-[#8b8987] font-mono select-none shrink-0">
+                        {prefixText}
+                    </span>
+                ) : null}
                 <PieceNotation move={move} isBlack={isBlack} />
                 
                 <span>{displayNotation}</span>

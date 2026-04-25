@@ -41,7 +41,24 @@ const SetUpPositionView = ({
     const [castling, setCastling] = useState({
         wOO: true, wOOO: true, bOO: true, bOOO: true
     })
-    const [selectedPiece, setSelectedPiece] = useState(null); // pl. 'P' vagy 'q'
+    
+     const [selectedPiece, setSelectedPiece] = useState(null); // pl. 'P' vagy 'q'
+
+    const updateFenTurn = (fen, nextTurn) => {
+        const fenParts = (fen || '').trim().split(/\s+/);
+        if (fenParts.length < 4) return fen;
+
+        fenParts[1] = nextTurn;
+        return fenParts.join(' ');
+    };
+
+    const updateFenTurn = (fen, nextTurn) => {
+        const fenParts = (fen || '').trim().split(/\s+/);
+        if (fenParts.length < 4) return fen;
+
+        fenParts[1] = nextTurn;
+        return fenParts.join(' ');
+    };
 
     const placePieceOnBoard = (square) => {
     if (!selectedPiece) return;
@@ -177,10 +194,14 @@ const SetUpPositionView = ({
                     <div className="py-4 flex items-center gap-4">
                         <select 
                             value={turn === 'w' ? "White to move" : "Black to move"}
-                            onChange={(e) => {
+                             onChange={(e) => {
                                 const newTurn = e.target.value === "White to move" ? 'w' : 'b';
                                 // Itt elméletileg módosítani kéne a FEN stringet is, ha a felhasználó kézzel vált
                                 setTurn(newTurn);
+                                setTurn(newTurn);
+                                const updatedFen = updateFenTurn(localFen, newTurn);
+                                setLocalFen(updatedFen);
+                                onFenChange(updatedFen);
                             }}
                             className="flex-1 bg-[#161512] text-white p-2 rounded border border-[#3c3a37] text-sm focus:outline-none cursor-pointer"
                         >

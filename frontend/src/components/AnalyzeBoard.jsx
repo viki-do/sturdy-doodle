@@ -119,6 +119,9 @@ const AnalyzeBoard = () => {
     const [previewFen, setPreviewFen] = useState(null);
     const [rightPanelMode, setRightPanelMode] = useState('analysis'); // 'analysis' vagy 'setup'
     const [initialAnalysis, setInitialAnalysis] = useState(null);
+    const [sandboxStatus, setSandboxStatus] = useState('ongoing');
+    const [sandboxStatusReason, setSandboxStatusReason] = useState('');
+    const [panelNotice, setPanelNotice] = useState('');
     const [selectedSetupPiece, setSelectedSetupPiece] = useState(null); // 'P', 'k', stb.
     
 
@@ -134,6 +137,56 @@ const AnalyzeBoard = () => {
     return names[p.toLowerCase()];
 };
 
+    const getSandboxGameState = (fen) => {
+        try {
+            const board = new Chess(fen || DEFAULT_FEN);
+
+            if (board.isCheckmate()) {
+                const winner = board.turn() === 'w' ? 'Black' : 'White';
+                return { status: 'checkmate', reason: `${winner} wins by checkmate` };
+            }
+
+            if (board.isStalemate()) {
+                return { status: 'draw', reason: 'Draw by stalemate' };
+            }
+
+            if (board.isInsufficientMaterial()) {
+                return { status: 'draw', reason: 'Draw by insufficient material' };
+            }
+
+            if (board.isThreefoldRepetition()) {
+                return { status: 'draw', reason: 'Draw by repetition' };
+            }
+
+            if (board.isDrawByFiftyMoves()) {
+                return { status: 'draw', reason: 'Draw by 50-move rule' };
+            }
+
+            if (board.isDraw()) {
+                return { status: 'draw', reason: 'Draw' };
+            }
+
+            return { status: 'ongoing', reason: '' };
+        } catch {
+            return { status: 'ongoing', reason: '' };
+        }
+    };
+
+    const getResultLabel = () => {
+        if (sandboxStatus === 'draw') return '1/2-1/2';
+
+        if (sandboxStatus === 'checkmate') {
+            try {
+                const board = new Chess(sandboxFen || DEFAULT_FEN);
+                return board.turn() === 'w' ? '0-1' : '1-0';
+            } catch {
+                return null;
+            }
+        }
+
+        return null;
+    };
+
    
     // --- PERSISTENCE ---
     
@@ -148,6 +201,8 @@ const AnalyzeBoard = () => {
             if (data.history) setSandboxHistory(data.history);
             if (data.lastMove) setSandboxLastMove(data.lastMove);
             if (data.opening) setOpeningName(data.opening);
+            if (data.initialAnalysis) setInitialAnalysis(data.initialAnalysis);
+            if (data.panelNotice) setPanelNotice(data.panelNotice);
 
             if (data.startingFen) {
                 setSandboxStartingFen(data.startingFen);
@@ -163,9 +218,23 @@ const AnalyzeBoard = () => {
 }, []); 
 
     useEffect(() => {
-        const cache = { fen: sandboxFen, history: sandboxHistory, lastMove: sandboxLastMove, opening: openingName, startingFen: sandboxStartingFen };
+        const cache = { 
+            fen: sandboxFen, 
+            history: sandboxHistory, 
+            lastMove: sandboxLastMove, 
+            opening: openingName, 
+            startingFen: sandboxStartingFen,
+            initialAnalysis,
+            panelNotice
+        };
         localStorage.setItem('chess_analysis_cache', JSON.stringify(cache));
-    }, [sandboxFen, sandboxHistory, sandboxLastMove, openingName, sandboxStartingFen]);
+    }, [sandboxFen, sandboxHistory, sandboxLastMove, openingName, sandboxStartingFen, initialAnalysis, panelNotice]);
+
+    useEffect(() => {
+        const { status, reason } = getSandboxGameState(sandboxFen);
+        setSandboxStatus(status);
+        setSandboxStatusReason(reason);
+    }, [sandboxFen]);
 
 
 
@@ -191,6 +260,10 @@ const AnalyzeBoard = () => {
 
     // --- LÉPÉS VÉGREHAJTÁS ---
     const executeAnalysisMove = async (from, to, promotion = null) => {
+    if (sandboxStatus !== 'ongoing') {
+        return;
+    }
+
     if (viewIndex !== -1) {
         const latest = sandboxHistory[sandboxHistory.length - 1];
         if (latest) {
@@ -222,6 +295,7 @@ const AnalyzeBoard = () => {
     setSandboxFen(newFen);
     setSandboxLastMove({ from, to });
     setPendingPromotion(null);
+    setPanelNotice('');
 
     // JAVÍTÁS: Hozzáadjuk a fen_before mezőt a mentett lépéshez
     const tempMove = {
@@ -261,6 +335,9 @@ const AnalyzeBoard = () => {
 
         if (res.data.opening) {
             setOpeningName(typeof res.data.opening === 'object' ? res.data.opening.name : res.data.opening);
+        }
+        if (res.data.message) {
+            setPanelNotice(res.data.message);
         }
     } catch (err) {
         console.error("Analysis error:", err);
@@ -402,6 +479,10 @@ const handleFullReview = async () => {
     // Ez csak akkor fut le, ha NEM setup módban vagyunk, vagy nincs kijelölt bábu
     console.log("=> NORMÁL MÓD: Lépéskezelés indítása...");
 
+    if (sandboxStatus !== 'ongoing') {
+        return;
+    }
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const chess = new Chess(sandboxFen);
@@ -512,9 +593,37 @@ const handleExternalDrop = (e, row, col) => {
     const captured = getCapturedPieces(currentFen);
     const materialDiff = getMaterialDiff(captured);
 
-    const currentEvalValue = viewIndex === -1 && sandboxHistory.length > 0 
-        ? sandboxHistory[sandboxHistory.length - 1].eval : 0;
+    const currentEvalValue = viewIndex === -1
+        ? (sandboxHistory.length > 0
+            ? (sandboxHistory[sandboxHistory.length - 1].eval ?? 0)
+            : (initialAnalysis?.eval ?? 0))
+        : (sandboxHistory[viewIndex]?.eval ?? initialAnalysis?.eval ?? 0);
     const whiteBarHeight = Math.min(Math.max(50 + (currentEvalValue * 10), 5), 95);
+    const hasActiveSandboxState =
+        sandboxHistory.length > 0 ||
+        sandboxFen !== DEFAULT_FEN ||
+        sandboxStartingFen !== DEFAULT_FEN ||
+        Boolean(initialAnalysis) ||
+        Boolean(openingName) ||
+        Boolean(panelNotice);
+
+    const resetSandboxAnalysis = () => {
+        setSandboxFen(DEFAULT_FEN);
+        setSandboxHistory([]);
+        setSandboxStartingFen(DEFAULT_FEN);
+        setSandboxLastMove({ from: null, to: null });
+        setViewIndex(-1);
+        setOpeningName("");
+        setInitialAnalysis(null);
+        setPanelNotice('');
+        setPreviewFen(null);
+        setPendingPromotion(null);
+        setRightPanelMode('analysis');
+        setSelectedSetupPiece(null);
+        setIsDragging(false);
+        setIsNewModalOpen(false);
+        localStorage.removeItem('chess_analysis_cache');
+    };
 
     return (
         <div className="flex h-screen w-full bg-[#161512] text-[#bab9b8] px-6 py-4 gap-6 overflow-hidden select-none font-sans items-center"
@@ -574,7 +683,7 @@ const handleExternalDrop = (e, row, col) => {
                             lastMove: previewFen ? { from: null, to: null } : sandboxLastMove, 
                             isFlipped,
                             viewIndex,
-                            status: previewFen ? "viewing" : "ongoing",
+                            status: previewFen ? "viewing" : sandboxStatus,
                             handleMouseUp: handleMouseUp,
                         }} 
                         onMouseDown={handleMouseDown} 
@@ -659,6 +768,7 @@ const handleExternalDrop = (e, row, col) => {
                 setViewIndex(-1);
                 setOpeningName("");
                 setInitialAnalysis(null);
+                setPanelNotice('');
                 setSandboxHistory([]); 
                 setRightPanelMode('analysis');
                 setIsAnalyzing(true);
@@ -671,11 +781,17 @@ const handleExternalDrop = (e, row, col) => {
                     }, { headers: { Authorization: `Bearer ${token}` } });
 
                     if (res.data) {
+                        if (res.data.error) {
+                            setPanelNotice(res.data.message || "Engine analysis is unavailable for this position.");
+                            return;
+                        }
+
                         // 3. Eredmények elmentése
                         setInitialAnalysis({
                             eval: res.data.eval / 100,
                             engineLines: res.data.engine_lines || []
                         });
+                        setPanelNotice('');
 
                         if (res.data.opening) {
                             setOpeningName(res.data.opening?.name || res.data.opening || "");
@@ -713,8 +829,10 @@ const handleExternalDrop = (e, row, col) => {
                 }}
                 currentFen={sandboxFen}
                 initialAnalysis={initialAnalysis}
+                statusText={panelNotice || sandboxStatusReason}
+                resultLabel={getResultLabel()}
                 onSaveClick={() => setIsSaveModalOpen(true)}
-                onNewClick={() => sandboxHistory.length > 0 && setIsNewModalOpen(true)}
+                onNewClick={() => hasActiveSandboxState && setIsNewModalOpen(true)}
                 onReviewClick={handleFullReview}
                 onSetupClick={() => setRightPanelMode('setup')} // Ez már jó volt
                 onHoverVariation={handleHoverVariation}
@@ -819,16 +937,7 @@ const handleExternalDrop = (e, row, col) => {
 
                             {/* New Analysis Gomb (Piros) */}
                             <button 
-                                onClick={() => {
-                                    // Itt töröljük az elemzést
-                                    setSandboxFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
-                                    setSandboxHistory([]);
-                                    setSandboxStartingFen(DEFAULT_FEN);
-                                    setSandboxLastMove({ from: null, to: null });
-                                    setOpeningName("");
-                                    setIsNewModalOpen(false);
-                                    localStorage.removeItem('chess_analysis_cache');
-                                }}
+                                onClick={resetSandboxAnalysis}
                                 className="flex-1 py-3 bg-[#fa412d] hover:bg-[#ff5a4a] text-white font-bold rounded-lg transition-colors shadow-lg"
                             >
                                 New Analysis

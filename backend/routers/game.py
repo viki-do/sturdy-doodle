@@ -234,6 +234,17 @@ def analyze_sandbox_move(data: dict):
         prev_eval = data.get("prev_eval", 30)
         
         board = chess.Board(fen_before)
+        if not board.is_valid():
+            return {
+                "label": "best",
+                "eval": 0,
+                "best_move": "",
+                "opening": None,
+                "engine_lines": [],
+                "error": "invalid_position",
+                "message": "This position is not a legal chess position, so engine analysis is unavailable."
+            }
+
         engine = get_engine()
         
         # Alapértelmezett üres válasz struktúra
@@ -244,6 +255,37 @@ def analyze_sandbox_move(data: dict):
             deep_res = coach.analyze_position_deep(board, engine, depth=20, multipv=3)
         except Exception as e:
             print(f"Mélyelemzési hiba: {e}")
+
+        # Fallback: bizonyos sandbox/FEN állásoknál a fenti út néha üres engine_lines-szal tér vissza.
+        # Ilyenkor ugyanazzal a mélységgel lefuttatunk egy közvetlen engine elemzést.
+        if not deep_res.get("engine_lines"):
+            try:
+                analysis = engine.analyse(board, chess.engine.Limit(depth=20), multipv=3)
+                engine_lines = []
+
+                for entry in analysis:
+                    pv_moves = entry.get("pv", [])
+                    if not pv_moves:
+                        continue
+
+                    score = entry["score"].white().score(mate_score=10000)
+                    engine_lines.append({
+                        "eval": score / 100.0 if abs(score) < 5000 else f"M{int((10000-abs(score))/100)}",
+                        "raw_eval": score,
+                        "continuation": board.variation_san(pv_moves[:30]),
+                        "pv_uci": [move.uci() for move in pv_moves[:30]],
+                        "first_move_san": board.san(pv_moves[0])
+                    })
+
+                if engine_lines:
+                    deep_res = {
+                        "eval": engine_lines[0]["raw_eval"],
+                        "best_move": engine_lines[0]["first_move_san"],
+                        "engine_lines": engine_lines,
+                        "raw_analysis": analysis
+                    }
+            except Exception as e:
+                print(f"Sandbox fallback elemzési hiba: {e}")
 
         # Ha nincs lépés (LOAD gomb)
         if not move_san:

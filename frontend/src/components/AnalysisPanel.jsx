@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Chess } from 'chess.js';
 import { 
-    Upload, Settings, BookOpen, 
+    Upload, Settings, BookOpen, Info, 
     MoreHorizontal, Search
 } from 'lucide-react';
 import { 
@@ -33,6 +33,8 @@ const AnalysisPanel = ({
     onSetupClick,
     currentFen,
     initialAnalysis,
+    statusText,
+    resultLabel,
 }) => {
 
     const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -45,23 +47,37 @@ const AnalysisPanel = ({
     const currentMoveData = history.length === 0 
         ? (initialAnalysis ? { 
             fen: currentFen, 
-            engine_lines: initialAnalysis.engineLines, 
+            engineLines: initialAnalysis.engineLines || [],
+            engine_lines: initialAnalysis.engineLines || [], 
             eval: initialAnalysis.eval 
-          } : { fen: currentFen, engine_lines: [] })
+          } : { fen: currentFen, engineLines: [], engine_lines: [] })
         : (viewIndex === -1 ? history[history.length - 1] : history[viewIndex]);
 
-    const startsWithBlack = history.length > 0 && history[0].fen_before 
-        ? new Chess(history[0].fen_before).turn() === 'b'
-        : chess.turn() === 'b' && history.length === 0;
-    const startMoveNum = (history.length > 0 && history[0].fen_before)
-        ? new Chess(history[0].fen_before).moveNumber()
-        : chess.moveNumber();
+       const getFenTurn = (fen) => {
+        try {
+            return new Chess(fen || DEFAULT_FEN).turn();
+        } catch {
+            return 'w';
+        }
+    };
 
-    const isFirstMoveBlack = startsWithBlack && history.length > 0;
+    const getFenMoveNumber = (fen) => {
+        const fenParts = (fen || '').trim().split(/\s+/);
+        const fullmove = Number.parseInt(fenParts[5], 10);
 
+        if (Number.isFinite(fullmove)) return fullmove;
+
+        try {
+            return new Chess(fen || DEFAULT_FEN).moveNumber();
+        } catch {
+            return 1;
+        }
+    };
+
+    
     const getDisplayLines = () => {
         // 1. Ha éppen egy múltbéli lépést nézünk a history-ban
-        if (viewIndex !== -1 && history[viewIndex]) {
+          if (viewIndex !== -1 && history[viewIndex]) {
             return history[viewIndex].engineLines || history[viewIndex].engine_lines || [];
         }
         // 2. Ha az aktuális (legutolsó) lépésnél vagyunk a history-ban
@@ -70,7 +86,7 @@ const AnalysisPanel = ({
         }
         // 3. Ha NINCS history (most töltöttünk be FEN-t), de van initialAnalysis
         if (history.length === 0 && initialAnalysis) {
-            return initialAnalysis.engineLines || [];
+            return currentMoveData.engineLines || currentMoveData.engine_lines || [];
         }
         return [];
     };
@@ -111,6 +127,22 @@ const AnalysisPanel = ({
             return tempChess.fen();
         } catch (e) { return null; }
     };
+
+    const renderResultCell = () => (
+        <div className="flex items-center gap-2 min-h-[26px]">
+            <span className="text-[14px] font-bold text-[#bab9b8] leading-none">
+                {resultLabel}
+            </span>
+            {statusText ? (
+                <div
+                    title={statusText}
+                    className="w-6 h-6 rounded-full bg-[#8b8987] text-[#262421] flex items-center justify-center cursor-help shrink-0"
+                >
+                    <Info size={14} strokeWidth={2.75} />
+                </div>
+            ) : null}
+        </div>
+    );
 
     return (
         <div className="relative w-[480px] h-[744px] bg-[#262421] rounded-lg flex flex-col shadow-xl border border-[#3c3a37] overflow-hidden font-sans">
@@ -201,73 +233,100 @@ const AnalysisPanel = ({
                             </div>
 
                             <div className="flex items-center justify-between py-2 px-1 text-[11px] text-[#8b8987] border-b border-[#3c3a37]/50 mt-1 shrink-0">
-                                <span className="truncate">{openingName || "Analysis started"}</span>
+                                <span className="truncate">{statusText || openingName || "Analysis started"}</span>
                                 <BookOpen size={14} className="shrink-0 ml-2" />
                             </div>
 
                             <div className="flex flex-col py-1 overflow-y-auto no-scrollbar flex-1 min-h-0">
                             {(() => {
                                 const rows = [];
-                                let hIdx = 0;
 
-                                // SPECIÁLIS ELSŐ SOR: Ha sötéttel indult a sandbox
-                                if (isFirstMoveBlack) {
-                                    rows.push(
-                                        <div key="row-0" className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${viewIndex === 0 ? 'bg-[#ffffff03]' : ''}`}>
-                                            <span className="text-[12px] text-[#8b8987] font-mono select-none">{startMoveNum}.</span>
-                                            {/* Világos helyén a három pont */}
-                                            <span className="text-[12px] text-[#8b8987] px-3 italic opacity-50">...</span>
-                                            {/* Sötét lépése (history[0]) - kötelezően isBlack={true} */}
-                                            <MoveItem 
-                                                move={history[0]} 
-                                                isActive={viewIndex === 0} 
-                                                onClick={() => onViewMove(0)} 
-                                                isBlack={true} 
-                                            />
-                                        </div>
-                                    );
-                                    hIdx = 1; // A folytatás a history[1]-től indul
-                                }
+                                for (let j = 0; j < history.length;) {
+                                    const currentMove = history[j];
+                                    const fenBefore = currentMove?.fen_before || currentFen || DEFAULT_FEN;
+                                    const moveTurn = getFenTurn(fenBefore);
+                                    const displayNum = getFenMoveNumber(fenBefore);
 
-                                // TÖBBI SOR: Kettesével haladunk
-                                for (let j = hIdx; j < history.length; j += 2) {
-                                    // A körszám számítása: ha sötéttel kezdtünk, a j=1 már az 51. kör világosa lesz
-                                    const displayNum = isFirstMoveBlack 
-                                        ? startMoveNum + Math.floor((j + 1) / 2)
-                                        : startMoveNum + Math.floor(j / 2);
+                                    if (moveTurn === 'b') {
+                                        rows.push(
+                                            <div key={`row-${j}`} className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${viewIndex === j ? 'bg-[#ffffff03]' : ''}`}>
+                                                <span className="text-[12px] text-[#8b8987] font-mono select-none">{displayNum}.</span>
+                                                <span className="text-[12px] text-[#8b8987] px-3 italic opacity-50">...</span>
+                                                  <MoveItem 
+                                                    move={currentMove} 
+                                                    isActive={viewIndex === j} 
+                                                    onClick={() => onViewMove(j)} 
+                                                    isBlack={true}
+                                                    prefixText={`${displayNum}.`}
+                                                />
+                                            </div>
+                                        );
+                                        j += 1;
+                                        continue;
+                                    }
+
+                                    const nextMove = history[j + 1];
+                                    const canPairBlackMove = nextMove &&
+                                        getFenTurn(nextMove.fen_before || DEFAULT_FEN) === 'b' &&
+                                        getFenMoveNumber(nextMove.fen_before || DEFAULT_FEN) === displayNum;
 
                                     rows.push(
                                         <div key={`row-${j}`} className={`grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3 ${
-                                            (viewIndex === j || viewIndex === j + 1) ? 'bg-[#ffffff03]' : ''
+                                            (viewIndex === j || (canPairBlackMove && viewIndex === j + 1)) ? 'bg-[#ffffff03]' : ''
                                         }`}>
                                             <span className="text-[12px] text-[#8b8987] font-mono select-none">{displayNum}.</span>
-                                            
-                                            {/* Világos oszlop: history[j] */}
                                             <MoveItem 
-                                                move={history[j]} 
+                                                move={currentMove} 
                                                 isActive={viewIndex === j} 
                                                 onClick={() => onViewMove(j)} 
                                                 isBlack={false} 
                                             />
-
-                                            {/* Sötét oszlop: history[j+1] */}
-                                            {history[j+1] ? (
+                                            {canPairBlackMove ? (
                                                 <MoveItem 
-                                                    move={history[j+1]} 
-                                                    isActive={viewIndex === j+1} 
-                                                    onClick={() => onViewMove(j+1)} 
-                                                    isBlack={true} 
+                                                    move={nextMove} 
+                                                    isActive={viewIndex === j + 1} 
+                                                    onClick={() => onViewMove(j + 1)} 
+                                                    isBlack={true}
+                                                    prefixText={`${displayNum}.`}
                                                 />
                                             ) : <div className="flex-1" />}
                                         </div>
                                     );
+
+                                    j += canPairBlackMove ? 2 : 1;
                                 }
+
+                                if (resultLabel) {
+                                    const resultFen = currentMoveData?.fen || currentFen || DEFAULT_FEN;
+                                    const resultTurn = getFenTurn(resultFen);
+
+                                    if (resultTurn === 'w') {
+                                        rows.push(
+                                            <div key="result-row" className="grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3">
+                                                <div className="col-span-2">
+                                                    {renderResultCell()}
+                                                </div>
+                                                <div className="flex-1" />
+                                            </div>
+                                        );
+                                    } else {
+                                        rows.push(
+                                            <div key="result-row" className="grid grid-cols-[35px_1fr_1fr] items-center min-h-[30px] px-3">
+                                                <span />
+                                                <div className="flex-1" />
+                                                {renderResultCell()}
+                                            </div>
+                                        );
+                                    }
+                                }
+
                                 return rows;
                             })()}
                         </div>
                         </div>
                     </div>
-                )}
+                )
+                }
             </div>
 
             {/* FIX FOOTER - Mindig látható */}
