@@ -7,6 +7,7 @@ import ProfilePage from './pages/ProfilePage';
 import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
 import GameArchive from './pages/GameArchive';
+import GameDatabase from './pages/GameDatabase';
 import AnalyzeBoard from './components/AnalyzeBoard';
 import PlaySelectionPanel from './components/PlaySelectionPanel';
 import BotSelectionOrGame from './components/BotSelectionOrGame';
@@ -82,6 +83,11 @@ const App = () => {
                         <Route 
                             path="/games/archive/:username"
                             element={isAuthenticated ? <GameArchive /> : <Navigate to="/login" />} 
+                        />
+
+                        <Route
+                            path="/games"
+                            element={isAuthenticated ? <GameDatabase /> : <Navigate to="/login" />}
                         />
 
                         {/* Alapértelmezett átirányítások */}

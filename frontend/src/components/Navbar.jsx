@@ -1,26 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import {
-    Gamepad2,
-    Puzzle,
-    GraduationCap,
-    Microscope,
-    Search,
-    User,
-    Settings,
-    Bell,
-    LogOut,
-    Users,
-    Cpu,
-    Zap,
-    History
-} from 'lucide-react';
-
+import { MoreHorizontal } from 'lucide-react';
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const username = localStorage.getItem('chessUsername');
     const [isPlayHovered, setIsPlayHovered] = useState(false);
+    const [isOtherHovered, setIsOtherHovered] = useState(false);
 
     const handleLogout = () => {
         localStorage.clear();
@@ -169,45 +155,86 @@ const Navbar = () => {
                         active={isActive('/analysis')}
                     />
                 </a>
+
+                <div
+                    className="relative"
+                    onMouseEnter={() => setIsOtherHovered(true)}
+                    onMouseLeave={() => setIsOtherHovered(false)}
+                >
+                    <button
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all relative group cursor-pointer ${
+                            isOtherHovered
+                                ? 'bg-[#312e2b] text-white shadow-sm'
+                                : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'
+                        }`}
+                    >
+                        <span className={`${isOtherHovered ? 'text-[#81b64c]' : 'text-[#bab9b8] group-hover:text-white'}`}>
+                            <MoreHorizontal size={20} />
+                        </span>
+                        <span className="text-[15px] font-bold">Other</span>
+                    </button>
+
+                    {isOtherHovered && (
+                        <div className="absolute left-full top-0 ml-1 w-72 bg-[#171614] border border-[#3c3a37] rounded-r-lg shadow-2xl py-2 z-[2000] overflow-hidden">
+                            <DropdownItem
+                                icon={
+                                    <img 
+                                        src="/assets/moves/collections.svg" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                }
+                                label="Collections"
+                                onClick={() => navigate(`/games/archive/${username}`)}
+                            />
+                            <DropdownItem
+                                icon={
+                                    <img 
+                                        src="/assets/moves/chess_database.svg" 
+                                        alt="Bots" 
+                                        className="w-5 h-5 object-contain" 
+                                    />
+                                }
+                                label="Game Database"
+                                onClick={() => navigate('/games')}
+                            />
+                        </div>
+                    )}
+                </div>
             </nav>
 
             {/* Footer Buttons */}
-            <div className="mt-auto flex flex-col gap-2 px-2 pt-4 border-t border-[#3c3a37]">
-                <button className="flex items-center gap-3 px-3 py-2 text-[#bab9b8] hover:bg-[#312e2b] hover:text-white rounded-lg transition-all cursor-pointer">
-                    <Search size={20} />
-                    <span className="text-sm font-semibold">Search</span>
-                </button>
+            <div className="mt-auto flex items-center justify-between gap-2 px-2 pt-4 border-t border-[#3c3a37]">
                 <div
                     onClick={() => navigate(`/member/${username}`)}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${location.pathname.startsWith('/member') ? 'bg-[#312e2b] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'}`}
+                    className={`min-w-0 flex-1 flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all ${location.pathname.startsWith('/member') ? 'bg-[#312e2b] text-white' : 'text-[#bab9b8] hover:bg-[#312e2b] hover:text-white'}`}
                 >
                     <div className="w-6 h-6 bg-[#454241] rounded flex justify-center items-center overflow-hidden">
-                        <User size={16} className="text-[#81b64c]" />
+                        <ImageIcon src="/assets/pieces/white_king.png" alt="Profile" className="w-4 h-4" />
                     </div>
                     <span className="text-sm font-semibold truncate">{username}</span>
                 </div>
-                <div className="flex justify-between items-center px-2 py-2">
-                    <button className="text-[#bab9b8] hover:text-white transition-colors cursor-pointer relative">
-                        <Bell size={20} />
-                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#e74c3c] text-[10px] text-white rounded-full flex items-center justify-center font-bold border-2 border-[#262421]">1</span>
-                    </button>
-                    <button className="text-[#bab9b8] hover:text-white transition-colors cursor-pointer">
-                        <Settings size={20} />
-                    </button>
-                    <button
-                        onClick={handleLogout}
-                        className="text-[#bab9b8] hover:text-[#e74c3c] transition-colors cursor-pointer"
-                        title="Logout"
-                    >
-                        <LogOut size={20} />
-                    </button>
-                </div>
+                <button
+                    onClick={handleLogout}
+                    className="flex items-center justify-center px-3 py-2 text-[#bab9b8] hover:bg-[#312e2b] rounded-lg transition-all cursor-pointer"
+                    title="Logout"
+                >
+                    <ImageIcon src="/assets/logos/logout.svg" alt="Logout" className="w-5 h-5" />
+                </button>
             </div>
         </aside>
     );
 };
 
 // --- SEGÉDKOMPONENSEK ---
+
+const ImageIcon = ({ src, alt, className = 'w-5 h-5' }) => (
+    <img
+        src={src}
+        alt={alt}
+        className={`${className} object-contain`}
+    />
+);
 
 const NavItem = ({ to, icon, label, active, badge }) => (
     <Link
