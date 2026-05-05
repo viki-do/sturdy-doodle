@@ -1,55 +1,14 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import ChessBoardGrid from '../components/ChessBoardGrid';
 // JAVÍTÁS: useChessGame helyett useChess Context importálása
 import { useChess } from '../context/ChessContext';
-import ClockIcon from '../components/ClockIcon';
 import axios from 'axios';
 import { Chess } from 'chess.js';
-import { botCategories } from '../constants/bots.js';
-import { CapturedRow } from '../components/MaterialAdvantage.jsx';
 import { getCapturedPieces, getMaterialDiff } from '../components/materialUtils.js';
-
-const findBotByGameData = (gameData) => {
-    if (!gameData) return null;
-
-    const bots = botCategories.flatMap(cat => cat.bots);
-    const botId = gameData.bot_id ? String(gameData.bot_id).toLowerCase() : null;
-    const botElo = Number(gameData.bot_elo);
-    const botStyle = gameData.bot_style ? String(gameData.bot_style).toLowerCase() : null;
-
-    if (botId === 'engine') {
-        return {
-            id: 'engine',
-            name: 'Engine',
-            elo: Number.isFinite(botElo) ? botElo : 2200,
-            img: null,
-            isEngine: true,
-            style: botStyle || 'mix'
-        };
-    }
-
-    return (
-        bots.find(bot =>
-            botId &&
-            String(bot.id).toLowerCase() === botId &&
-            Number(bot.elo) === botElo &&
-            (!botStyle || String(bot.style || '').toLowerCase() === botStyle)
-        ) ||
-        bots.find(bot =>
-            botId &&
-            String(bot.id).toLowerCase() === botId &&
-            Number(bot.elo) === botElo
-        ) ||
-        bots.find(bot =>
-            botId &&
-            String(bot.id).toLowerCase() === botId
-        ) ||
-        bots.find(bot => Number(bot.elo) === botElo) ||
-        null
-    );
-};
+import CapturedProgressBar from '../components/game-board/CapturedProgressBar.jsx';
+import ChessBoardArea from '../components/game-board/ChessBoardArea.jsx';
+import PlayerInfoBar from '../components/game-board/PlayerInfoBar.jsx';
+import { findBotByGameData } from '../components/game-board/gameBoardUtils.js';
 
 const GameBoard = () => {
     
@@ -57,15 +16,12 @@ const GameBoard = () => {
 
     const [isStarting, setIsStarting] = useState(false);
     const [isGameActiveUI, setIsGameActiveUI] = useState(false);
-    const [isSelectingBot, setIsSelectingBot] = useState(false);
+    const [, setIsSelectingBot] = useState(false);
     const [delayedShowPopup, setDelayedShowPopup] = useState(false);
     const [isPopupClosed, setIsPopupClosed] = useState(false);
     const [selectedTime, setSelectedTime] = useState("No Timer");
-    const [currentOpening, setCurrentOpening] = useState(null);
     const [opponent, setOpponent] = useState(null);
-    const [isViewingGame, setIsViewingGame] = useState(false);
     const [previewOpponent, setPreviewOpponent] = useState(null);
-    const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [analysisData, setAnalysisData] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [userName, setUserName] = useState("You");
@@ -79,13 +35,12 @@ const GameBoard = () => {
     const location = useLocation();
 
     const {
-        status, history, viewIndex, startNewGame, handleResign, fetchGameState,
-        token, gameId, setGameId, setFen, setLastMove, setViewIndex, isFlipped, setIsFlipped,
-        getSquareName, fen, setSelectedSquare, setIsDragging, setHoverSquare,isLoading, initializeGame,
-        setValidMoves, API_BASE, setIsAlert, selectedSquare, validMoves, isDragging,
-        setDragOffset, setMousePos, playSound, reason, pendingPromotion, setPendingPromotion,
-        renderNotation, whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
-        lastTimeControl, executeMove, setHistory, setSpectatorMode, handleMouseDown, handleMouseUp, 
+        status, history, viewIndex, startNewGame,
+        token, gameId, setFen, setLastMove, setViewIndex, isFlipped, setIsFlipped,
+        getSquareName, fen, setSelectedSquare, setHoverSquare, initializeGame,
+        API_BASE, isDragging, setMousePos, playSound, reason, pendingPromotion,
+        whiteTime, blackTime, activeTimeColor, setBlackTime, setWhiteTime,
+        lastTimeControl, executeMove, setHistory, handleMouseDown, handleMouseUp,
     } = gameLogic;
 
     // --- ÚJ FÜGGVÉNYEK ---
@@ -141,7 +96,7 @@ const GameBoard = () => {
                         
                         setOpponent(findBotByGameData(res.data));
                     }
-                } catch (e) { console.error("Hiba az ellenfél pótlásakor"); }
+                } catch { console.error("Hiba az ellenfél pótlásakor"); }
             }
         } 
         /**
@@ -178,23 +133,6 @@ const GameBoard = () => {
         setLastMove({ from: null, to: null });
     };
 
-    const formatSeconds = (totalSeconds) => {
-        const total = Math.max(0, Number(totalSeconds) || 0);
-        if (total < 10) {
-            const secs = Math.floor(total);
-            const tenths = Math.floor((total * 10) % 10);
-            return `0:0${secs}.${tenths}`;
-        }
-        const roundedTotal = Math.floor(total);
-        const hours = Math.floor(roundedTotal / 3600);
-        const mins = Math.floor((roundedTotal % 3600) / 60);
-        const secs = roundedTotal % 60;
-        if (hours > 0) {
-            return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
-
     const getDisplayTime = (color) => {
         const config = gameLogic.parseTimeControl(lastTimeControl);
         const baseTime = Number(config?.base) || 600;
@@ -227,7 +165,7 @@ const GameBoard = () => {
             
             // 4. Navigálunk a bots oldalra (ahol a MoveListPanel lakik)
             navigate('bots'); 
-        } catch (err) {
+        } catch {
             navigate('bots');
         }
     } else {
@@ -431,171 +369,78 @@ const GameBoard = () => {
         }
     };
 
+    const showClock = (isGameActiveUI || location.pathname.includes('/bots')) &&
+        selectedTime !== "No Timer" &&
+        !location.pathname.includes('/analysis');
+    const selectedBaseTime = gameLogic.parseTimeControl(selectedTime).base || 600;
+    const topClockColor = isFlipped ? 'w' : 'b';
+    const bottomClockColor = isFlipped ? 'b' : 'w';
+    const topClockSeconds = isGameActiveUI
+        ? (isFlipped ? getDisplayTime('w') : getDisplayTime('b'))
+        : selectedBaseTime;
+    const bottomClockSeconds = isGameActiveUI
+        ? (isFlipped ? getDisplayTime('b') : getDisplayTime('w'))
+        : selectedBaseTime;
+    const boardGameLogic = location.pathname === '/play'
+        ? {
+            ...gameLogic,
+            fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            isFlipped: false,
+            lastMove: { from: null, to: null },
+            validMoves: [],
+            selectedSquare: null
+        }
+        : { ...gameLogic, isFlipped };
+    const handlePopupNewGame = () => {
+        setIsGameActiveUI(false);
+        gameLogic.resetGame();
+        navigate('/play/bots');
+    };
+
     return (
         <div className="flex justify-center items-center h-screen w-full bg-[#1e1e1e] gap-6 p-4 overflow-hidden select-none relative">
-            <div className="w-8 h-170 bg-[#2b2b2b] flex flex-col justify-end border border-chess-bg shrink-0">
-                <div className="bg-white w-full h-[50%] transition-all"></div>
-            </div>
+            <CapturedProgressBar />
 
             <div className="flex flex-col justify-center items-center h-full shrink-0">
-            {/* ELLENFÉL ADATAI (Felső sáv) */}
-            <div className="w-170 flex items-center justify-between px-1 h-12 mb-1 shrink-0">
-                <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
-                    {/* JAVÍTOTT KÉP LOGIKA */}
-                    {opponent?.img || previewOpponent?.img ? (
-                        <img 
-                            src={opponent?.img || previewOpponent?.img} 
-                            alt="" 
-                            className="w-full h-full object-cover" 
-                        />
-                    ) : (
-                        <i className="fas fa-robot text-[#808080] text-xl"></i>
-                    )}
-                </div>
-                <div className="flex flex-col justify-center">
-                    {/* JAVÍTOTT NÉV LOGIKA */}
-                    <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
-                        {opponent?.name || previewOpponent?.name || 'Opponent'}
-                    </span>
-                    
-                    {/* JAVÍTOTT ELO LOGIKA */}
-                    {(opponent?.elo || previewOpponent?.elo) && (
-                        <span className="text-[#8b8987] text-[11px] font-bold">
-                            ({opponent?.elo || previewOpponent?.elo})
-                        </span>
-                    )}
-                    <CapturedRow
-                        pieces={topMaterial.pieces}
-                        side={topSide}
-                        diff={topMaterial.diff}
-                    />
-                </div>
+                <PlayerInfoBar
+                    type="top"
+                    opponent={opponent}
+                    previewOpponent={previewOpponent}
+                    material={topMaterial}
+                    side={topSide}
+                    showClock={showClock}
+                    clockIsLight={isFlipped}
+                    clockIsActive={activeTimeColor === topClockColor && viewIndex === -1}
+                    clockSeconds={topClockSeconds}
+                />
+
+                <ChessBoardArea
+                    gameLogic={gameLogic}
+                    boardGameLogic={boardGameLogic}
+                    isGameActiveUI={isGameActiveUI}
+                    isFlipped={isFlipped}
+                    pendingPromotion={pendingPromotion}
+                    delayedShowPopup={delayedShowPopup}
+                    status={status}
+                    reason={reason}
+                    executeMove={executeMove}
+                    handleMouseDown={handleMouseDown}
+                    handleMouseUp={handleMouseUp}
+                    handleClosePopup={handleClosePopup}
+                    onNewGame={handlePopupNewGame}
+                />
+
+                <PlayerInfoBar
+                    type="bottom"
+                    userName={userName}
+                    material={bottomMaterial}
+                    side={bottomSide}
+                    showClock={showClock}
+                    clockIsLight={!isFlipped}
+                    clockIsActive={activeTimeColor === bottomClockColor && viewIndex === -1}
+                    clockSeconds={bottomClockSeconds}
+                />
             </div>
-
-                {/* ELLENFÉL ÓRÁJA */}
-                {/* JAVÍTÁS: Csak akkor mutassunk órát, ha van aktív játék VAGY a botválasztó menüben vagyunk */}
-                {((isGameActiveUI || location.pathname.includes('/bots')) && 
-                selectedTime !== "No Timer" && 
-                !location.pathname.includes('/analysis')) && (
-                    <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
-                        isFlipped ? "bg-white text-[#2b2a27]" : "bg-[#262421] text-white"
-                    } ${activeTimeColor === (isFlipped ? 'w' : 'b') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
-                        <div className="shrink-0">
-                            <ClockIcon
-                                isActive={viewIndex === -1 && activeTimeColor === (isFlipped ? 'w' : 'b')}
-                                currentSeconds={isGameActiveUI ? (isFlipped ? getDisplayTime('w') : getDisplayTime('b')) : (gameLogic.parseTimeControl(selectedTime).base || 600)}
-                            />
-                        </div>
-                        <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                            {formatSeconds(isGameActiveUI ? (isFlipped ? getDisplayTime('w') : getDisplayTime('b')) : (gameLogic.parseTimeControl(selectedTime).base || 600))}
-                        </span>
-                    </div>
-                )}
-            </div>
-
-            {/* SAKKTÁBLA */}
-            <div className="relative shrink-0 p-0 m-0">
-                <div id="chess-board" className="w-170 h-170 bg-[#2b2b2b] relative"
-                    style={{ pointerEvents: isGameActiveUI ? 'auto' : 'none' }}>
-                    <ChessBoardGrid 
-                        gameLogic={
-                            location.pathname === '/play' 
-                                ? { 
-                                    ...gameLogic, 
-                                    fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 
-                                    isFlipped: false,
-                                    lastMove: { from: null, to: null },
-                                    validMoves: [],
-                                    selectedSquare: null
-                                } 
-                                : { ...gameLogic, isFlipped }
-                        } 
-                        onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp} 
-                    />
-
-                    <AnimatePresence>
-                        {isGameActiveUI && pendingPromotion && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                className="absolute z-5000 bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
-                                style={{
-                                    left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`,
-                                    top: ((!isFlipped && pendingPromotion.to.endsWith('8')) || (isFlipped && pendingPromotion.to.endsWith('1'))) ? '0' : 'auto',
-                                    bottom: ((!isFlipped && pendingPromotion.to.endsWith('1')) || (isFlipped && pendingPromotion.to.endsWith('8'))) ? '0' : 'auto',
-                                    width: '12.5%'
-                                }}>
-                                {['q', 'n', 'r', 'b'].map((type) => (
-                                    <button key={type} onClick={() => executeMove(pendingPromotion.from, pendingPromotion.to, type)} className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100">
-                                        <img src={`/assets/pieces/${isFlipped ? 'black' : 'white'}_${type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'}.png`} alt={type} />
-                                    </button>
-                                ))}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-
-                    <AnimatePresence>
-                        {isGameActiveUI && delayedShowPopup && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                className="absolute inset-0 bg-black/40 flex items-center justify-center z-9999 rounded-sm pointer-events-auto">
-                                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#262421] p-10 rounded-3xl text-center border border-chess-bg shadow-2xl max-w-sm w-85 relative">
-                                    <button onClick={handleClosePopup} className="absolute top-4 right-5 text-[#989795] hover:text-white text-xl cursor-pointer">
-                                        <i className="fas fa-times"></i>
-                                    </button>
-                                    <h1 className="text-4xl font-bold text-white mb-2 uppercase tracking-widest">{status}</h1>
-                                    <p className="text-[#bab9b8] mb-8 font-semibold italic text-sm">{reason || "Match finished"}</p>
-                                    <div className="flex flex-col gap-3">
-                                        <button onClick={() => { setIsGameActiveUI(false); gameLogic.resetGame(); navigate('/play/bots'); }} className="w-full py-4 bg-[#81b64c] text-white rounded-xl text-xl font-bold hover:bg-[#a3d16a] transition-all shadow-lg cursor-pointer">
-                                            New Game
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            </div>
-
-            {/* SAJÁT ADATOK (Alsó sáv) */}
-            <div className="w-170 flex items-center justify-between px-1 h-12 mt-1 shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-[#2b2a27] rounded-md flex items-center justify-center border border-chess-bg overflow-hidden">
-                        <i className="fas fa-user text-[#808080] text-xl"></i>
-                    </div>
-                    <div className="flex flex-col justify-center">
-                        {/* JAVÍTÁS: "You" helyett a változó használata */}
-                        <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
-                            {userName}
-                        </span>
-                        <CapturedRow
-                            pieces={bottomMaterial.pieces}
-                            side={bottomSide}
-                            diff={bottomMaterial.diff}
-                        />
-                    </div>
-                </div>
-
-                {/* SAJÁT ÓRA */}
-                {/* JAVÍTÁS: Itt is ugyanaz a feltétel, /play alatt ne legyen óra válogatás közben se */}
-                {((isGameActiveUI || location.pathname.includes('/bots')) && 
-                selectedTime !== "No Timer" && 
-                !location.pathname.includes('/analysis')) && (
-                    <div className={`px-3 py-1.5 rounded flex items-center justify-between border shadow-lg min-w-35 transition-all duration-300 ${
-                        isFlipped ? "bg-[#262421] text-white" : "bg-white text-[#2b2a27]"
-                    } ${activeTimeColor === (isFlipped ? 'b' : 'w') && viewIndex === -1 ? "ring-2 ring-[#81b64c] border-transparent" : "border-white/10"}`}>
-                        <div className="shrink-0">
-                            <ClockIcon
-                                isActive={viewIndex === -1 && activeTimeColor === (isFlipped ? 'b' : 'w')}
-                                currentSeconds={isGameActiveUI ? (isFlipped ? getDisplayTime('b') : getDisplayTime('w')) : (gameLogic.parseTimeControl(selectedTime).base || 600)}
-                            />
-                        </div>
-                        <span className="flex-1 text-right font-sans font-bold text-2xl tabular-nums leading-none ml-2">
-                            {formatSeconds(isGameActiveUI ? (isFlipped ? getDisplayTime('b') : getDisplayTime('w')) : (gameLogic.parseTimeControl(selectedTime).base || 600))}
-                        </span>
-                    </div>
-                )}
-            </div>
-        </div>
 
             <div className="w-112.5 shrink-0 h-170 self-center flex flex-col">
                 <Outlet context={{ 

@@ -1,107 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess } from 'chess.js';
 import axios from 'axios';
-import ChessBoardGrid from '../components/ChessBoardGrid';
 import AnalysisPanel from './AnalysisPanel';
 import { useChess } from '../context/ChessContext';
-import { Settings } from 'lucide-react';
 import SetUpPositionView from './component_helpers/SetUpPositionView';
-import { AnimatePresence, motion } from 'framer-motion';
-import { 
-    
-    SetUpPosition, GameCollections
-} from './icons/Icons';
-
-
-const getCapturedPieces = (fen) => {
-    const defaults = {
-        p: 8, n: 2, b: 2, r: 2, q: 1,
-        P: 8, N: 2, B: 2, R: 2, Q: 1
-    };
-    const currentOnBoard = {};
-    const position = fen.split(' ')[0];
-    for (let char of position) {
-        if (/[a-zA-Z]/.test(char)) {
-            currentOnBoard[char] = (currentOnBoard[char] || 0) + 1;
-        }
-    }
-    const captured = { whiteSide: [], blackSide: [] };
-    Object.keys(defaults).forEach(piece => {
-        const count = defaults[piece] - (currentOnBoard[piece] || 0);
-        for (let i = 0; i < count; i++) {
-            if (piece === piece.toUpperCase()) captured.blackSide.push(piece.toLowerCase());
-            else captured.whiteSide.push(piece);
-        }
-    });
-    const order = ['p', 'n', 'b', 'r', 'q'];
-    captured.whiteSide.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    captured.blackSide.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    return captured;
-};
-
-const getMaterialDiff = (captured) => {
-    const values = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-    const whiteVal = captured.whiteSide.reduce((sum, p) => sum + values[p], 0);
-    const blackVal = captured.blackSide.reduce((sum, p) => sum + values[p], 0);
-    return whiteVal - blackVal;
-};
-
-const CapturedRow = ({ pieces, side, diff }) => {
-    // 1. Csoportosítjuk a bábukat típus szerint
-    // Eredmény pl: { p: ['p', 'p'], n: ['n'], b: ['b', 'b'] }
-    const groups = pieces.reduce((acc, piece) => {
-        if (!acc[piece]) acc[piece] = [];
-        acc[piece].push(piece);
-        return acc;
-    }, {});
-
-
-    // Meghatározzuk a fix sorrendet (gyalogtól a vezérig)
-    const order = ['p', 'n', 'b', 'r', 'q'];
-
-    return (
-        <div className="flex items-center h-5 mt-1 ml-0.5">
-            <div className="flex gap-[2px]"> {/* Távolság a típuscsoportok között */}
-                {order.map(type => {
-                    const group = groups[type];
-                    if (!group) return null;
-
-                    return (
-                        <div key={type} className="flex relative" style={{ marginRight: group.length > 1 ? '4px' : '0' }}>
-                            {group.map((piece, idx) => (
-                                <img 
-                                    key={idx}
-                                    src={`/assets/pieces/${side === 'white' ? 'black' : 'white'}_${
-                                        piece === 'p' ? 'pawn' : piece === 'n' ? 'knight' : 
-                                        piece === 'b' ? 'bishop' : piece === 'r' ? 'rook' : 'queen'
-                                    }.png`}
-                                    className="w-4.5 h-4.5 object-contain"
-                                    style={{ 
-                                        // Itt történik az egymás mögé csúsztatás
-                                        marginLeft: idx === 0 ? 0 : '-10px', 
-                                        zIndex: idx 
-                                    }}
-                                    alt={piece}
-                                />
-                            ))}
-                        </div>
-                    );
-                })}
-            </div>
-            
-            {/* Anyagi előny kiírása a sor végén */}
-            {diff > 0 && (
-                <span className="text-[11px] font-bold text-[#8b8987] ml-2 leading-none self-center">
-                    +{diff}
-                </span>
-            )}
-        </div>
-    );
-};
+import { AnimatePresence } from 'framer-motion';
+import { getCapturedPieces, getMaterialDiff } from './materialUtils';
+import AnalyzeBoardSection from './analyze-board/AnalyzeBoardSection';
+import AnalyzeEvalBar from './analyze-board/AnalyzeEvalBar';
+import NewAnalysisModal from './analyze-board/NewAnalysisModal';
+import SaveCollectionModal from './analyze-board/SaveCollectionModal';
+import SetupPieceDragPreview from './analyze-board/SetupPieceDragPreview';
+import {
+    DEFAULT_FEN,
+    getResultLabel,
+    getSandboxGameState,
+} from './analyze-board/analyzeBoardUtils';
 
 const AnalyzeBoard = () => {
     const chessContext = useChess();
-    const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     // --- ÁLLAPOTOK ---
     const [sandboxFen, setSandboxFen] = useState(DEFAULT_FEN);
 
@@ -111,8 +28,8 @@ const AnalyzeBoard = () => {
     const [sandboxLastMove, setSandboxLastMove] = useState({ from: null, to: null });
     const [viewIndex, setViewIndex] = useState(-1);
     const [openingName, setOpeningName] = useState("");
-    const [isFlipped, setIsFlipped] = useState(false);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isFlipped] = useState(false);
+    const [, setIsAnalyzing] = useState(false);
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
     const [isNewModalOpen, setIsNewModalOpen] = useState(false);
     const [pendingPromotion, setPendingPromotion] = useState(null);
@@ -132,62 +49,6 @@ const AnalyzeBoard = () => {
         setHoverSquare, hoverSquare, mousePos
     } = chessContext;
 
-    const getPieceName = (p) => {
-    const names = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
-    return names[p.toLowerCase()];
-};
-
-    const getSandboxGameState = (fen) => {
-        try {
-            const board = new Chess(fen || DEFAULT_FEN);
-
-            if (board.isCheckmate()) {
-                const winner = board.turn() === 'w' ? 'Black' : 'White';
-                return { status: 'checkmate', reason: `${winner} wins by checkmate` };
-            }
-
-            if (board.isStalemate()) {
-                return { status: 'draw', reason: 'Draw by stalemate' };
-            }
-
-            if (board.isInsufficientMaterial()) {
-                return { status: 'draw', reason: 'Draw by insufficient material' };
-            }
-
-            if (board.isThreefoldRepetition()) {
-                return { status: 'draw', reason: 'Draw by repetition' };
-            }
-
-            if (board.isDrawByFiftyMoves()) {
-                return { status: 'draw', reason: 'Draw by 50-move rule' };
-            }
-
-            if (board.isDraw()) {
-                return { status: 'draw', reason: 'Draw' };
-            }
-
-            return { status: 'ongoing', reason: '' };
-        } catch {
-            return { status: 'ongoing', reason: '' };
-        }
-    };
-
-    const getResultLabel = () => {
-        if (sandboxStatus === 'draw') return '1/2-1/2';
-
-        if (sandboxStatus === 'checkmate') {
-            try {
-                const board = new Chess(sandboxFen || DEFAULT_FEN);
-                return board.turn() === 'w' ? '0-1' : '1-0';
-            } catch {
-                return null;
-            }
-        }
-
-        return null;
-    };
-
-   
     // --- PERSISTENCE ---
     
     useEffect(() => {
@@ -253,7 +114,7 @@ const AnalyzeBoard = () => {
                 });
             }
             setPreviewFen(tempChess.fen());
-        } catch (e) {
+        } catch {
             setPreviewFen(null);
         }
     }, [sandboxFen]);
@@ -634,105 +495,28 @@ const handleExternalDrop = (e, row, col) => {
             }}
         >
             
-            {/* EVAL BAR */}
-            <div className="w-8 h-170 bg-[#262421] rounded-sm overflow-hidden flex flex-col-reverse relative border border-[#3c3a37] shrink-0 shadow-lg">
-                <div className="bg-white w-full transition-all duration-700 ease-out" style={{ height: `${whiteBarHeight}%` }}>
-                    <span className="absolute bottom-2 left-0 w-full text-center text-[10px] font-bold text-black uppercase">
-                        {(currentEvalValue || 0).toFixed(1)}
-                    </span>
-                </div>
-            </div>
+            <AnalyzeEvalBar whiteBarHeight={whiteBarHeight} currentEvalValue={currentEvalValue} />
 
-            {/* TÁBLA SZEKCIÓ */}
-            <div className="flex flex-col justify-center items-center gap-2">
-                {/* BLACK PLAYER INFO */}
-                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#8b8987]" onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-        }}>
-                    <div className="flex flex-col justify-center">
-                        <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-[#262421] rounded flex items-center justify-center italic text-xs border border-white/5 font-bold">B</div>
-                            <span className="font-bold text-sm">Black</span>
-                        </div>
-                        <CapturedRow 
-                            pieces={captured.blackSide} 
-                            side="black" 
-                            diff={materialDiff < 0 ? Math.abs(materialDiff) : 0} 
-                        />
-                    </div>
-                    <Settings size={18} className="cursor-pointer hover:text-white transition-colors" />
-                </div>
-
-                <div 
-                    id="chess-board" 
-                    className="w-170 h-170 relative shadow-2xl"
-                    onDragOver={(e) => {
-                        e.preventDefault();
-                        // Kényszerítjük a 'move' (vagy 'copy') kurzort a tiltás helyett
-                        e.dataTransfer.dropEffect = "move"; 
-                        setMousePos({ x: e.clientX, y: e.clientY });
-                        if (!isDragging) setIsDragging(true);
-                    }}
-                >
-                    <ChessBoardGrid 
-                        gameLogic={{ 
-                            ...chessContext, 
-                            fen: previewFen || (viewIndex === -1 ? sandboxFen : (sandboxHistory[viewIndex]?.fen || sandboxFen)), 
-                            history: sandboxHistory, 
-                            lastMove: previewFen ? { from: null, to: null } : sandboxLastMove, 
-                            isFlipped,
-                            viewIndex,
-                            status: previewFen ? "viewing" : sandboxStatus,
-                            handleMouseUp: handleMouseUp,
-                        }} 
-                        onMouseDown={handleMouseDown} 
-                        onMouseUp={handleMouseUp}
-                        onDrop={(e, row, col) => handleExternalDrop(e, row, col)}
-                    />
-
-                    {/* Promóció kezelése */}
-                    {pendingPromotion && (
-                        <div className="absolute z-[5000] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden"
-                            style={{
-                                left: `${(isFlipped ? (104 - pendingPromotion.to.charCodeAt(0)) : (pendingPromotion.to.charCodeAt(0) - 97)) * 12.5}%`,
-                                top: pendingPromotion.to.endsWith('8') ? '0' : 'auto',
-                                bottom: pendingPromotion.to.endsWith('1') ? '0' : 'auto',
-                                width: '12.5%'
-                            }}>
-                            {['q', 'n', 'r', 'b'].map((type) => (
-                                <button 
-                                    key={type} 
-                                    onClick={() => executeAnalysisMove(pendingPromotion.from, pendingPromotion.to, type)} 
-                                    className="w-full aspect-square hover:bg-gray-100 p-1 border-b border-gray-100"
-                                >
-                                    <img 
-                                        src={`/assets/pieces/${sandboxFen.split(' ')[1] === 'w' ? 'white' : 'black'}_${
-                                            type === 'q' ? 'queen' : type === 'n' ? 'knight' : type === 'r' ? 'rook' : 'bishop'
-                                        }.png`} 
-                                        alt={type} 
-                                    />
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* WHITE PLAYER INFO */}
-                <div className="w-170 flex items-center justify-between px-1 h-12 text-[#bab9b8]">
-                    <div className="flex flex-col justify-center">
-                        <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-[#ffffff] rounded flex items-center justify-center text-black italic text-xs shadow-sm font-bold border border-black/10">W</div>
-                            <span className="font-bold text-sm text-[#bab9b8]">White</span>
-                        </div>
-                        <CapturedRow 
-                            pieces={captured.whiteSide} 
-                            side="white" 
-                            diff={materialDiff > 0 ? materialDiff : 0} 
-                        />
-                    </div>
-                </div>
-            </div>
+            <AnalyzeBoardSection
+                chessContext={chessContext}
+                previewFen={previewFen}
+                viewIndex={viewIndex}
+                sandboxFen={sandboxFen}
+                sandboxHistory={sandboxHistory}
+                sandboxLastMove={sandboxLastMove}
+                isFlipped={isFlipped}
+                sandboxStatus={sandboxStatus}
+                pendingPromotion={pendingPromotion}
+                isDragging={isDragging}
+                captured={captured}
+                materialDiff={materialDiff}
+                handleMouseDown={handleMouseDown}
+                handleMouseUp={handleMouseUp}
+                handleExternalDrop={handleExternalDrop}
+                executeAnalysisMove={executeAnalysisMove}
+                setMousePos={setMousePos}
+                setIsDragging={setIsDragging}
+            />
         
             <div className="w-[480px] h-[744px] shrink-0 relative box-border">
             {rightPanelMode === 'setup' ? (
@@ -752,13 +536,14 @@ const handleExternalDrop = (e, row, col) => {
                         new Chess(newFen); 
                         setSandboxFen(newFen);
                         // Itt MÉG NEM töröljük a history-t, hogy gépelés közben ne villogjon
-                    } catch (e) {}
+                    } catch {
+                        // Keep invalid FEN ignored while typing, matching the previous behavior.
+                    }
                 }}
     
                 onLoadConfirm={async (finalFen) => {
                 const chess = new Chess(finalFen);
                 const turn = chess.turn();
-                const moveNumber = Math.floor(chess.moveNumber());
                 setIsDragging(false);
                 setSelectedSetupPiece(null);
 
@@ -830,7 +615,7 @@ const handleExternalDrop = (e, row, col) => {
                 currentFen={sandboxFen}
                 initialAnalysis={initialAnalysis}
                 statusText={panelNotice || sandboxStatusReason}
-                resultLabel={getResultLabel()}
+                resultLabel={getResultLabel(sandboxStatus, sandboxFen)}
                 onSaveClick={() => setIsSaveModalOpen(true)}
                 onNewClick={() => hasActiveSandboxState && setIsNewModalOpen(true)}
                 onReviewClick={handleFullReview}
@@ -841,112 +626,25 @@ const handleExternalDrop = (e, row, col) => {
             </div>
 
             <AnimatePresence>
-            {isDragging && selectedSetupPiece && (
-                <motion.img
-                    key="global-dragging-piece"
-                    src={`/assets/pieces/${
-                        // Itt használd a korábban definiált piecesMap-et vagy logikát
-                        selectedSetupPiece === selectedSetupPiece.toUpperCase() 
-                        ? `white_${getPieceName(selectedSetupPiece)}` 
-                        : `black_${getPieceName(selectedSetupPiece)}`
-                    }.png`}
-                    className="pointer-events-none fixed"
-                    style={{
-                        width: '75px',
-                        height: '75px',
-                        zIndex: 999999, // Minden felett
-                        left: 0,
-                        top: 0,
-                        filter: 'drop-shadow(0px 10px 15px rgba(0,0,0,0.5))'
-                    }}
-                    animate={{ 
-                        x: mousePos.x - 37.5,
-                        y: mousePos.y - 37.5,
-                        scale: 1.1
-                    }}
-                    transition={{ type: "tween", ease: "linear", duration: 0 }}
-                    exit={{ opacity: 0 }}
+                <SetupPieceDragPreview
+                    isDragging={isDragging}
+                    selectedSetupPiece={selectedSetupPiece}
+                    mousePos={mousePos}
                 />
-            )}
         </AnimatePresence>
-
-        
-            
-  
-
-            {/* SAVE MODAL */}
             <AnimatePresence>
-                {isSaveModalOpen && (
-                    <div className="fixed inset-0 z-[6000] flex items-center justify-center">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSaveModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-[450px] bg-[#262421] rounded-xl shadow-2xl border border-[#3c3a37] overflow-hidden">
-                            <div className="p-4 border-b border-[#3c3a37] bg-[#21201d] flex justify-between items-center">
-                                <h3 className="text-white font-bold">Add to Collection</h3>
-                                <button onClick={() => setIsSaveModalOpen(false)} className="text-[#bab9b8] hover:text-white rotate-45"><SetUpPosition size={18}/></button>
-                            </div>
-                            <div className="p-12 text-center text-[#bab9b8] text-sm">You have not created any Collections yet.</div>
-                            <div className="p-6 pt-0 space-y-2">
-                                <button className="w-full py-3 bg-[#312e2b] text-white font-bold rounded-lg flex items-center justify-center gap-2 border border-[#3c3a37]"><SetUpPosition size={20}/> Create New Collection</button>
-                                <button className="w-full py-3 text-[#bab9b8] text-xs font-bold flex items-center justify-center gap-2"><GameCollections size={16}/> Copy Shareable Link</button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
+                <SaveCollectionModal
+                    isOpen={isSaveModalOpen}
+                    onClose={() => setIsSaveModalOpen(false)}
+                />
             </AnimatePresence>
-            {/* NEW ANALYSIS CONFIRMATION MODAL */}
-        <AnimatePresence>
-            {isNewModalOpen && (
-                <div className="fixed inset-0 z-[7000] flex items-center justify-center">
-                    {/* Overlay */}
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setIsNewModalOpen(false)}
-                        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-                    />
-
-                    {/* Modal Box */}
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        className="relative w-[400px] bg-[#262421] rounded-xl shadow-2xl border border-[#3c3a37] p-8 overflow-hidden text-center"
-                    >
-                        {/* Bezáró X gomb a sarokban */}
-                        <button 
-                            onClick={() => setIsNewModalOpen(false)}
-                            className="absolute top-4 right-4 text-[#8b8987] hover:text-white transition-colors"
-                        >
-                            <SetUpPosition size={20} className="rotate-45" /> 
-                        </button>
-
-                        <h2 className="text-white text-2xl font-bold mb-2">Start New Analysis?</h2>
-                        <p className="text-[#bab9b8] text-sm mb-8">
-                            Any unsaved progress will be lost.
-                        </p>
-
-                        <div className="flex gap-4">
-                            {/* Cancel Gomb */}
-                            <button 
-                                onClick={() => setIsNewModalOpen(false)}
-                                className="flex-1 py-3 bg-[#3d3a37] hover:bg-[#45423e] text-white font-bold rounded-lg transition-colors shadow-lg"
-                            >
-                                Cancel
-                            </button>
-
-                            {/* New Analysis Gomb (Piros) */}
-                            <button 
-                                onClick={resetSandboxAnalysis}
-                                className="flex-1 py-3 bg-[#fa412d] hover:bg-[#ff5a4a] text-white font-bold rounded-lg transition-colors shadow-lg"
-                            >
-                                New Analysis
-                            </button>
-                        </div>
-                    </motion.div>
-                </div>
-            )}
-        </AnimatePresence>
+            <AnimatePresence>
+                <NewAnalysisModal
+                    isOpen={isNewModalOpen}
+                    onClose={() => setIsNewModalOpen(false)}
+                    onConfirm={resetSandboxAnalysis}
+                />
+            </AnimatePresence>
         </div>
     );
 
