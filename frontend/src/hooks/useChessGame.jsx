@@ -3,22 +3,20 @@ import axios from 'axios';
 import { Chess } from 'chess.js';
 // JAVÍTÁS: Socket importálása (feltételezve, hogy a src/socket.js-ben van)
 import { socket } from '../socket';
-
-const parseTimeControl = (timeStr) => {
-    if (!timeStr || timeStr === "No Timer") return { base: null, inc: 0 };
-    const cleanStr = timeStr.replace(' min', '').trim();
-    if (cleanStr.includes('|')) {
-        const [basePart, incPart] = cleanStr.split('|').map(s => parseInt(s.trim()));
-        return { base: basePart * 60, inc: incPart };
-    }
-    const mins = parseInt(cleanStr);
-    return { base: mins * 60, inc: 0 };
-};
+import { DEFAULT_BOT, DEFAULT_FEN, API_BASE } from './chess-game/chessGameConstants';
+import { getSquareNameFromCoords, isPromotionMove } from './chess-game/boardUtils';
+import {
+    createBotMoveEntry,
+    createPlayerMoveEntry,
+    createStartHistory,
+    mergeServerHistoryWithLocalTimes,
+} from './chess-game/historyUtils';
+import { getTimeCategory, parseTimeControl } from './chess-game/timeControl';
+import { getMoveAttemptSoundName, getMoveSoundName, renderNotationText } from './chess-game/soundUtils';
 
 export const useChessGame = () => {
-    const API_BASE = 'http://localhost:8000';
     const [gameId, setGameId] = useState(null);
-    const [fen, setFen] = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    const [fen, setFen] = useState(DEFAULT_FEN);
     const [selectedSquare, setSelectedSquare] = useState(null);
     const [validMoves, setValidMoves] = useState([]);
     const [lastMove, setLastMove] = useState({ from: null, to: null });
@@ -44,7 +42,7 @@ export const useChessGame = () => {
     const lastPlayedMoveNum = useRef(0);
     const processedBotFenRef = useRef(new Set());
     // const lastPlayedTickRef = useRef(-1);
-    const lastBotRef = useRef({ elo: 1500, id: 'engine', style: 'mix' });
+    const lastBotRef = useRef(DEFAULT_BOT);
     const [isFlipped, setIsFlipped] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -54,35 +52,18 @@ export const useChessGame = () => {
     }, []);
 
     const playBotMoveSound = useCallback((san) => {
-        if (!san) return;
-        if (san.includes('#')) playSound('checkmate');
-        else if (san.includes('=')) playSound('promote');
-        else if (san.includes('O-O')) playSound('castle');
-        else if (san.includes('+')) playSound('move-check');
-        else if (san.includes('x')) playSound('capture');
-        else playSound('move');
+        const soundName = getMoveSoundName(san);
+        if (soundName) playSound(soundName);
     }, [playSound]);
 
     const getSquareName = useCallback((row, col) => {
-        const filesArr = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-        return `${filesArr[col]}${8 - row}`;
+        return getSquareNameFromCoords(row, col);
     }, []);
 
     const [lastTimeControl, setLastTimeControl] = useState("No Timer");
 
     const renderNotation = useCallback((text) => {
-        if (!text || text === "start") return "";
-        const icons = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘' };
-        const firstChar = text[0];
-        if (icons[firstChar]) {
-            return (
-                <span className="flex items-center">
-                    <span className="text-[1.3em] mr-0.5 leading-none">{icons[firstChar]}</span>
-                    {text}
-                </span>
-            );
-        }
-        return text;
+        return renderNotationText(text);
     }, []);
 
     const fetchGameState = useCallback(async (id) => {
@@ -113,16 +94,7 @@ export const useChessGame = () => {
                     }
                 }
 
-                setHistory(prevHistory => {
-                    if (prevHistory.length === 0) return serverHistory;
-                    return serverHistory.map((serverMove, index) => {
-                        const localMove = prevHistory[index];
-                        if (localMove && localMove.m === serverMove.m) {
-                            return { ...serverMove, t: localMove.t };
-                        }
-                        return serverMove;
-                    });
-                });
+                setHistory(prevHistory => mergeServerHistoryWithLocalTimes(serverHistory, prevHistory));
 
                 const latestMove = serverHistory[serverHistory.length - 1];
                 setFen(latestMove.fen);
@@ -144,13 +116,13 @@ export const useChessGame = () => {
         } catch (err) { 
             console.error("Hiba a játék betöltésekor:", err); 
         }
-    }, [token, API_BASE, lastTimeControl, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);
+    }, [token, lastTimeControl, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);
 
 
     const resetGame = useCallback(() => {
         setGameId(null);
         localStorage.removeItem('chessGameId');
-        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setFen(DEFAULT_FEN);
         setLastMove({ from: null, to: null });
         setHistory([]);
         setStatus("");
@@ -164,7 +136,7 @@ export const useChessGame = () => {
     }, [gameId]);
 
     const setSpectatorMode = useCallback(() => {
-        setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        setFen(DEFAULT_FEN);
         setLastMove({ from: null, to: null });
         setHistory([]);
         setActiveTimeColor(null);
@@ -193,7 +165,7 @@ export const useChessGame = () => {
         setLastMove({ from: null, to: null });
         setLastTimeControl(finalTimeControl);
         setOpening(null);
-        setHistory([{ m: "start", wTime: initialTime, bTime: initialTime, num: 0 }]);
+        setHistory(createStartHistory(initialTime));
         setReason("");
         setStatus("ongoing");
         setViewIndex(-1);
@@ -208,7 +180,7 @@ export const useChessGame = () => {
                     bot_elo: currentBot.elo,
                     bot_id: currentBot.id,
                     bot_style: currentBot.style || "mix",
-                    time_category: hasTimer ? (initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid") : "custom",
+                    time_category: getTimeCategory(hasTimer, initialTime),
                     base_time: initialTime,
                     time_control: finalTimeControl
                 },
@@ -228,7 +200,7 @@ export const useChessGame = () => {
             socket.connect();
             socket.emit("join_game", { game_id: newId });
 
-            const isBotMoved = initialFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+            const isBotMoved = initialFen !== DEFAULT_FEN;
 
             if (isBotMoved) {
                 lastPlayedMoveNum.current = 1;
@@ -266,7 +238,7 @@ export const useChessGame = () => {
             setIsFlipped(color === 'black');
             return color === 'black' ? 'black' : 'white';
         }
-    }, [token, API_BASE, playSound, fetchGameState, lastTimeControl, lastBotRef, setIsFlipped]);
+    }, [token, playSound, fetchGameState, lastTimeControl, lastBotRef, setIsFlipped]);
 
 
 const initializeGame = useCallback(async () => {
@@ -315,7 +287,7 @@ const initializeGame = useCallback(async () => {
             console.log("HOOK: isLoading -> false");
             setIsLoading(false);
         }
-    }, [token, API_BASE, fetchGameState]);
+    }, [token, fetchGameState]);
 
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
@@ -346,7 +318,7 @@ const initializeGame = useCallback(async () => {
     const executeMove = async (from, to, promotion = null) => {
         const chess = new Chess(fen);
         const piece = chess.get(from);
-        if (piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1')) && !promotion) {
+        if (isPromotionMove(piece, to, promotion)) {
             setPendingPromotion({ from, to });
             setIsDragging(false);
             return;
@@ -362,15 +334,16 @@ const initializeGame = useCallback(async () => {
         const saveWhite = isWhiteTurn ? currentW : whiteTime;
         const saveBlack = !isWhiteTurn ? currentB : blackTime;
 
-        const myMoveForHistory = {
-            m: moveAttempt.san,
-            from, to,
+        const myMoveForHistory = createPlayerMoveEntry({
+            moveAttempt,
+            from,
+            to,
             fen: chess.fen(),
-            t: parseFloat(elapsed.toFixed(1)),
-            num: lastPlayedMoveNum.current + 1,
-            wTime: saveWhite,
-            bTime: saveBlack
-        };
+            elapsed,
+            moveNumber: lastPlayedMoveNum.current + 1,
+            whiteTime: saveWhite,
+            blackTime: saveBlack
+        });
 
         setHistory(prev => [...prev, myMoveForHistory]);
 
@@ -393,13 +366,7 @@ const initializeGame = useCallback(async () => {
 
         // Hangok lejátszása a saját lépés után
         setTimeout(() => {
-            if (chess.isCheckmate()) playSound('checkmate');
-            else if (chess.isStalemate() || chess.isDraw() || chess.isThreefoldRepetition()) playSound('stalemate');
-            else if (moveAttempt.flags.includes('p') || moveAttempt.flags.includes('cp')) playSound('promote');
-            else if (moveAttempt.flags.includes('k') || moveAttempt.flags.includes('q')) playSound('castle');
-            else if (chess.isCheck()) playSound('move-check');
-            else if (moveAttempt.captured || moveAttempt.flags.includes('e')) playSound('capture');
-            else playSound('move');
+            playSound(getMoveAttemptSoundName(chess, moveAttempt));
         }, 10);
 
         try {
@@ -432,16 +399,14 @@ const initializeGame = useCallback(async () => {
 
                     return [
                         ...prev,
-                        {
-                            m: botMove.san,
-                            from: botMove.from,
-                            to: botMove.to,
+                        createBotMoveEntry({
+                            botMove,
                             fen: res.data.new_fen,
-                            t: botMove.think_time || 0,
-                            num: prev.length,
-                            wTime: whiteTime,
-                            bTime: blackTime
-                        }
+                            thinkTime: botMove.think_time || 0,
+                            moveNumber: prev.length,
+                            whiteTime,
+                            blackTime
+                        })
                     ];
                 });
 
@@ -629,16 +594,14 @@ useEffect(() => {
             // Ellenőrizzük, hogy ez a FEN véletlenül nincs-e már benne
             if (prev.some(m => m.fen === data.fen)) return prev;
 
-            const botMoveEntry = {
-                m: botMove.san,
-                from: botMove.from,
-                to: botMove.to,
+            const botMoveEntry = createBotMoveEntry({
+                botMove,
                 fen: data.fen,
-                t: serverThinkTime, // A szerver által generált random idő (1-4s)
-                num: prev.length,   // Sorszám a lista hossza alapján
-                wTime: whiteTime, 
-                bTime: blackTime
-            };
+                thinkTime: serverThinkTime, // A szerver által generált random idő (1-4s)
+                moveNumber: prev.length,   // Sorszám a lista hossza alapján
+                whiteTime,
+                blackTime
+            });
             return [...prev, botMoveEntry];
         });
 
@@ -723,7 +686,7 @@ useEffect(() => {
             }, 50);
         }
         return () => clearInterval(timer);
-    }, [gameId, status, activeTimeColor, lastTimeControl, API_BASE, token, playSound]);
+    }, [gameId, status, activeTimeColor, lastTimeControl, token, playSound]);
 
     // Figyelmeztető hang effektus
     useEffect(() => {
