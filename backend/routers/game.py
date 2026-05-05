@@ -176,6 +176,90 @@ def get_skill_level_from_elo(elo: int) -> int:
     level = int((elo - 250) / (3000 - 250) * 20)
     return max(0, min(20, level))
 
+def configure_engine_for_elo(engine, elo: int):
+    skill = get_skill_level_from_elo(elo)
+    config = {"Skill Level": skill}
+
+    try:
+        options = getattr(engine, "options", {})
+        if "UCI_LimitStrength" in options and "UCI_Elo" in options and elo >= 1320:
+            elo_option = options["UCI_Elo"]
+            min_elo = elo_option.min if elo_option.min is not None else 1320
+            max_elo = elo_option.max if elo_option.max is not None else 3190
+            config["UCI_LimitStrength"] = True
+            config["UCI_Elo"] = max(min_elo, min(max_elo, int(elo)))
+        elif "UCI_LimitStrength" in options:
+            config["UCI_LimitStrength"] = False
+    except Exception:
+        pass
+
+    try:
+        engine.configure(config)
+    except Exception:
+        engine.configure({"Skill Level": skill})
+
+def get_bot_limit_params(elo: int, pure_stockfish: bool = False):
+    if elo < 500:
+        return {"time": 0.05, "nodes": 250}
+    if elo < 800:
+        return {"time": 0.08, "nodes": 500}
+    if elo < 1300:
+        return {"time": 0.12}
+    if elo < 1800:
+        return {"time": 0.2}
+    if elo < 2300:
+        return {"time": 0.35}
+    return {"time": 0.6 if pure_stockfish else 0.45}
+
+def first_legal_option(board, options):
+    for move in options:
+        if move in board.legal_moves:
+            return move
+    return next(iter(board.legal_moves))
+
+def choose_styled_bot_move(board, analysis, bot_style: str, bot_elo: int):
+    if not analysis:
+        return next(iter(board.legal_moves))
+
+    options = []
+    for entry in analysis:
+        pv = entry.get("pv") or []
+        if pv and pv[0] in board.legal_moves:
+            options.append(pv[0])
+    if not options:
+        return next(iter(board.legal_moves))
+
+    style = (bot_style or "universal").lower()
+    if style in {"stockfish", "engine", "top_player"}:
+        return options[0]
+
+    r = random.random()
+    captures = [m for m in options if board.is_capture(m)]
+    checks = [m for m in options if board.gives_check(m)]
+    forcing = []
+    for move in checks + captures:
+        if move not in forcing:
+            forcing.append(move)
+    quiet = [m for m in options if not board.is_capture(m) and not board.gives_check(m)]
+
+    if style in {"attacker", "attacking", "tactical"}:
+        chosen = random.choice(forcing[:3]) if forcing and r < 0.8 else first_legal_option(board, options[:2])
+    elif style in {"defensive", "solid"}:
+        chosen = quiet[0] if quiet and r < 0.75 else options[0]
+    elif style in {"positional", "strategic"}:
+        chosen = quiet[0] if quiet and r < 0.65 else first_legal_option(board, options[:2])
+    elif style in {"universal", "dynamic"}:
+        chosen = options[0] if r < 0.65 or len(options) < 2 else random.choice(options[:3])
+    else:
+        chosen = options[0]
+
+    if bot_elo < 500 and r < 0.4 and len(options) > 1:
+        return options[-1]
+    if bot_elo < 900 and r < 0.2 and len(options) > 2:
+        return random.choice(options[1:])
+
+    return chosen
+
 def load_openings():
     global OPENING_BOOK
     base_path = os.path.join("data", "openings")
@@ -445,6 +529,11 @@ async def create_game(request: Request, data: dict, user_id: str = Depends(get_c
         bot_elo = data.get("bot_elo", 1500)
         bot_id = data.get("bot_id", "engine")
         bot_style = data.get("bot_style", "mix")
+        time_category_raw = data.get("time_category", "rapid")
+        try:
+            time_category = models.GameCategory(time_category_raw)
+        except ValueError:
+            time_category = models.GameCategory.rapid
         
         # --- RANDOM SORSOLÁS (Backend oldalon) ---
         if chosen_color == "random":
@@ -461,7 +550,7 @@ async def create_game(request: Request, data: dict, user_id: str = Depends(get_c
             bot_elo=bot_elo,
             bot_id=bot_id,
             bot_style=bot_style,
-            time_category=models.GameCategory.rapid, # Alapértelmezett, vagy számold ki az időből
+            time_category=time_category,
             base_time_sec=data.get("base_time", 600),
             status=models.GameStatus.ongoing
         )
@@ -484,18 +573,19 @@ async def create_game(request: Request, data: dict, user_id: str = Depends(get_c
             engine = get_engine()
             
             # Konfigurálás
-            skill = get_skill_level_from_elo(bot_elo)
-            engine.configure({"Skill Level": skill})
+            configure_engine_for_elo(engine, bot_elo)
             
             # Időlimit meghatározása
-            t_limit = 0.1 if bot_elo < 800 else 0.8
+            pure_stockfish = bot_style in {"stockfish", "engine", "top_player"} or bot_id == "engine"
+            limit_params = get_bot_limit_params(bot_elo, pure_stockfish)
             
             # Bot lép
-            result = engine.play(board, chess.engine.Limit(time=t_limit))
+            analysis = engine.analyse(board, chess.engine.Limit(**limit_params), multipv=5)
+            bot_move = choose_styled_bot_move(board, analysis, bot_style, bot_elo)
             
-            move_san = board.san(result.move)
+            move_san = board.san(bot_move)
             fen_elotte = board.fen()
-            board.push(result.move)
+            board.push(bot_move)
             
             # Bot első lépésének mentése
             db.add(models.Move(
@@ -681,41 +771,14 @@ async def make_move(request: Request, data: dict, user_id: str = Depends(get_cur
             bot_id = str(game_rec.bot_id).lower()
             bot_style = (game_rec.bot_style or "universal").lower()
             
-            engine.configure({"Skill Level": get_skill_level_from_elo(bot_elo)})
+            pure_stockfish = bot_style in {"stockfish", "engine", "top_player"} or bot_id == "engine"
+            configure_engine_for_elo(engine, bot_elo)
             
-            limit_params = {"time": 0.1}
-            if bot_elo < 800: 
-                limit_params["nodes"] = 400
+            limit_params = get_bot_limit_params(bot_elo, pure_stockfish)
             
             analysis = engine.analyse(board, chess.engine.Limit(**limit_params), multipv=5)
             
-            if not analysis:
-                chosen_move = list(board.legal_moves)[0]
-            else:
-                options = [a["pv"][0] for a in analysis]
-                r = random.random()
-
-                if bot_id == "engine":
-                    chosen_move = options[0]
-                else:
-                    if bot_style == "attacker":
-                        aggressive = [m for m in options if board.is_capture(m) or board.gives_check(m)]
-                        chosen_move = random.choice(aggressive) if aggressive and r < 0.8 else options[0]
-                    elif bot_style == "positional":
-                        quiet = [m for m in options if not board.is_capture(m) and not board.gives_check(m)]
-                        chosen_move = quiet[0] if quiet else options[0]
-                    elif bot_style == "tactician":
-                        chosen_move = options[0] if r < 0.9 or len(options) < 2 else options[1]
-                    elif bot_style == "universal":
-                        chosen_move = options[0] if r < 0.7 else random.choice(options[:2])
-                    elif bot_style == "prophylactic":
-                        safe = [m for m in options if not board.is_capture(m)]
-                        chosen_move = safe[0] if safe else options[0]
-                    else:
-                        chosen_move = options[0]
-
-                    if bot_elo < 500 and r < 0.4 and len(options) > 1:
-                        chosen_move = options[-1] 
+            chosen_move = choose_styled_bot_move(board, analysis, bot_style, bot_elo)
                         
             if chosen_move:
                 bot_res["san"] = board.san(chosen_move)
@@ -857,7 +920,9 @@ def get_game_history(game_id: str, db: Session = Depends(get_db)):
             "history": history_data,
             "status": status_value,
             "reason": reason,
-            "opening": opening_data
+            "opening": opening_data,
+            "base_time_sec": game.base_time_sec,
+            "time_category": game.time_category.value if game.time_category else None
         }
 
     except Exception as e:
@@ -876,7 +941,12 @@ def get_active_game(user_id: str = Depends(get_current_user_id), db: Session = D
     if active_game:
         return {
             "game_id": str(active_game.id),
-            "player_color": active_game.player_color
+            "player_color": active_game.player_color,
+            "bot_elo": active_game.bot_elo,
+            "bot_id": active_game.bot_id,
+            "bot_style": active_game.bot_style,
+            "base_time_sec": active_game.base_time_sec,
+            "time_category": active_game.time_category.value if active_game.time_category else None
         }
     return {"game_id": None}
 

@@ -1,7 +1,7 @@
 import os
 import jwt
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import RedirectResponse
@@ -49,9 +49,7 @@ def get_db():
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    # utcnow() helyett now(timezone.utc)
-    expire = datetime.now(timezone.utc) + timedelta(hours=24)
-    to_encode.update({"exp": expire})
+    to_encode.update({"iat": datetime.now(timezone.utc)})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user_id(token: str = Depends(oauth2_scheme)):

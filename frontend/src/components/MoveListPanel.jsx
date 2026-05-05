@@ -1,5 +1,6 @@
 import React from 'react';
 import { moves } from '../constants/review';
+import { PieceNotation } from './component_helpers/AnalysisHelpers';
 
 const MoveListPanel = ({
     history,
@@ -7,7 +8,6 @@ const MoveListPanel = ({
     status,
     goToMove,
     handleResign,
-    renderNotation,
     startNewGame,
     isPopupClosed,
     isPopupVisible,
@@ -77,7 +77,7 @@ const MoveListPanel = ({
 
     // --- ELEMZÉSI IKON RENDERELÉSE ---
     const renderMoveIcon = (move) => {
-        if (!move || !move.analysisLabel) return null;
+        if (!move || !move.analysisLabel || move.analysisLabel === 'book') return null;
         const analysis = moves[move.analysisLabel];
         
         if (!analysis) return null;
@@ -89,6 +89,19 @@ const MoveListPanel = ({
                 title={`${analysis.label}: ${analysis.desc}`}
                 className="w-4.5 h-4.5 ml-1.5 object-contain animate-in zoom-in duration-300" 
             />
+        );
+    };
+
+    const renderMoveNotation = (move, isBlack = false) => {
+        if (!move?.m) return "";
+        const hasPieceIcon = /^[NBRQK]/.test(move.m);
+        const displayNotation = hasPieceIcon ? move.m.substring(1) : move.m;
+
+        return (
+            <>
+                <PieceNotation move={move} isBlack={isBlack} />
+                <span>{displayNotation}</span>
+            </>
         );
     };
 
@@ -200,7 +213,7 @@ const MoveListPanel = ({
                                         viewIndex === whiteIdx ? 'bg-[#3b3835] text-white rounded-sm' : 'text-[#bab9b8] hover:text-white'
                                     }`}
                                 >
-                                    {renderNotation(row.white.m)}
+                                    {renderMoveNotation(row.white, false)}
                                     {renderMoveIcon(row.white)}
                                 </div>
 
@@ -211,7 +224,7 @@ const MoveListPanel = ({
                                         row.black && viewIndex === blackIdx ? 'bg-[#3b3835] text-white rounded-sm' : 'text-[#bab9b8] hover:text-white'
                                     }`}
                                 >
-                                    {row.black ? renderNotation(row.black.m) : ""}
+                                    {row.black ? renderMoveNotation(row.black, true) : ""}
                                     {renderMoveIcon(row.black)}
                                 </div>
 

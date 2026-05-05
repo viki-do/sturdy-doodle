@@ -26,7 +26,7 @@ const LoginPage = () => {
       localStorage.setItem('chessUsername', username);
       localStorage.setItem('chessUserId', userId);
       window.history.replaceState({}, document.title, "/login");
-      navigate('/play');
+      navigate('/home');
       window.location.reload(); 
     }
   }, [navigate]);
@@ -38,7 +38,7 @@ const LoginPage = () => {
       localStorage.setItem('chessToken', res.data.access_token);
       localStorage.setItem('chessUsername', res.data.username);
       localStorage.setItem('chessUserId', res.data.user_id);
-      navigate('/play');
+      navigate('/home');
       window.location.reload(); 
     } catch (err) { 
       console.error(err); 

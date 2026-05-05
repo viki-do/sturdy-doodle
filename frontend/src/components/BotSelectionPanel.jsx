@@ -1,36 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { botCategories, engineEloSteps } from '../constants/bots';
 
+const configuredBots = botCategories.flatMap(category => category.bots);
+const DEFAULT_BOT_SETTINGS = { time: 'No Timer', color: 'white' };
+
+const getSettingsForBot = (settingsByBot, bot) => ({
+    ...DEFAULT_BOT_SETTINGS,
+    ...(bot?.id ? settingsByBot[bot.id] : {})
+});
+
+const getInitialBot = () => {
+    const saved = localStorage.getItem('lastSelectedBot');
+    if (!saved) return botCategories[0].bots[0];
+
+    try {
+        const parsed = JSON.parse(saved);
+        if (parsed?.id === 'engine') return parsed;
+        return configuredBots.find(bot => bot.id === parsed?.id) || botCategories[0].bots[0];
+    } catch {
+        return botCategories[0].bots[0];
+    }
+};
+
 const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, onPreviewChange }) => {
     const [selectedBot, setSelectedBot] = useState(() => {
-        const saved = localStorage.getItem('lastSelectedBot');
-        return saved ? JSON.parse(saved) : botCategories[0].bots[0];
+        return getInitialBot();
     });
 
     const [botSettings, setBotSettings] = useState(() => {
         const saved = localStorage.getItem('botSettings');
-        return saved ? JSON.parse(saved) : {};
+        if (!saved) return {};
+
+        try {
+            return JSON.parse(saved);
+        } catch {
+            return {};
+        }
     });
 
-    const [timeControl, setTimeControl] = useState('No Timer');
-    const [selectedColor, setSelectedColor] = useState('white');
+    const initialSettings = getSettingsForBot(botSettings, selectedBot);
+    const [timeControl, setTimeControl] = useState(initialSettings.time);
+    const [selectedColor, setSelectedColor] = useState(initialSettings.color);
     const [expandedCategory, setExpandedCategory] = useState(null);
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-    const [engineElo, setEngineElo] = useState(2200);
+    const [engineElo, setEngineElo] = useState(selectedBot?.id === 'engine' ? selectedBot.elo || 2200 : 2200);
     const [features, setFeatures] = useState({
         evalBar: false, threatArrows: false, suggestionArrows: false, moveFeedback: false, engine: false
     });
 
     useEffect(() => {
         if (selectedBot) {
-            const settings = botSettings[selectedBot.id] || {};
-            const savedTime = settings.time || 'No Timer';
-            const savedColor = settings.color || 'white';
-            setTimeControl(savedTime);
-            setSelectedColor(savedColor);
-            if (onColorChange) onColorChange(savedColor);
-            if (onTimeChange) onTimeChange(savedTime);
-            if (selectedBot.id === 'engine') setEngineElo(selectedBot.elo || 2200);
+            if (onColorChange) onColorChange(selectedColor);
+            if (onTimeChange) onTimeChange(timeControl);
         }
     }, []);
 
@@ -41,9 +62,9 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, o
         if (onPreviewChange) {
         onPreviewChange(bot); // Azonnal szólunk a GameBoardnak, hogy változott a választás
     }
-        const settings = botSettings[bot.id] || {};
-        const newTime = settings.time || 'No Timer';
-        const newColor = settings.color || 'white';
+        const settings = getSettingsForBot(botSettings, bot);
+        const newTime = settings.time;
+        const newColor = settings.color;
         setTimeControl(newTime);
         setSelectedColor(newColor);
         if (onTimeChange) onTimeChange(newTime);
@@ -76,6 +97,17 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, o
         setBotSettings(newSettings);
         localStorage.setItem('botSettings', JSON.stringify(newSettings));
         if (onColorChange) onColorChange(color);
+    };
+
+    const handlePlay = () => {
+        const newSettings = {
+            ...botSettings,
+            [selectedBot.id]: { ...(botSettings[selectedBot.id] || {}), time: timeControl, color: selectedColor }
+        };
+        setBotSettings(newSettings);
+        localStorage.setItem('botSettings', JSON.stringify(newSettings));
+        localStorage.setItem('lastSelectedBot', JSON.stringify(selectedBot));
+        onSelectBot(selectedBot, selectedColor, timeControl);
     };
     
    const handleSliderChange = (e) => {
@@ -247,7 +279,7 @@ const BotSelectionPanel = ({ onBack, onSelectBot, onTimeChange, onColorChange, o
                 </div>
 
                 <button 
-                    onClick={() => onSelectBot(selectedBot, selectedColor, timeControl)}
+                    onClick={handlePlay}
                     className="w-full py-4 bg-[#81b64c] hover:bg-[#95c95d] text-white font-black text-2xl uppercase rounded-lg shadow-[0_4px_0_0_#457528] active:translate-y-1 active:shadow-none transition-all cursor-pointer"
                 >
                     Play

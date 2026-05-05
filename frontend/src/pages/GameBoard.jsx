@@ -8,6 +8,48 @@ import ClockIcon from '../components/ClockIcon';
 import axios from 'axios';
 import { Chess } from 'chess.js';
 import { botCategories } from '../constants/bots.js';
+import { CapturedRow } from '../components/MaterialAdvantage.jsx';
+import { getCapturedPieces, getMaterialDiff } from '../components/materialUtils.js';
+
+const findBotByGameData = (gameData) => {
+    if (!gameData) return null;
+
+    const bots = botCategories.flatMap(cat => cat.bots);
+    const botId = gameData.bot_id ? String(gameData.bot_id).toLowerCase() : null;
+    const botElo = Number(gameData.bot_elo);
+    const botStyle = gameData.bot_style ? String(gameData.bot_style).toLowerCase() : null;
+
+    if (botId === 'engine') {
+        return {
+            id: 'engine',
+            name: 'Engine',
+            elo: Number.isFinite(botElo) ? botElo : 2200,
+            img: null,
+            isEngine: true,
+            style: botStyle || 'mix'
+        };
+    }
+
+    return (
+        bots.find(bot =>
+            botId &&
+            String(bot.id).toLowerCase() === botId &&
+            Number(bot.elo) === botElo &&
+            (!botStyle || String(bot.style || '').toLowerCase() === botStyle)
+        ) ||
+        bots.find(bot =>
+            botId &&
+            String(bot.id).toLowerCase() === botId &&
+            Number(bot.elo) === botElo
+        ) ||
+        bots.find(bot =>
+            botId &&
+            String(bot.id).toLowerCase() === botId
+        ) ||
+        bots.find(bot => Number(bot.elo) === botElo) ||
+        null
+    );
+};
 
 const GameBoard = () => {
     
@@ -49,6 +91,18 @@ const GameBoard = () => {
     // --- ÚJ FÜGGVÉNYEK ---
 
     const isGameActive = !!gameId && gameId !== "null";
+    const captured = getCapturedPieces(fen);
+    const materialDiff = getMaterialDiff(captured);
+    const topSide = isFlipped ? 'white' : 'black';
+    const bottomSide = isFlipped ? 'black' : 'white';
+    const getSideMaterial = (side) => ({
+        pieces: side === 'white' ? captured.whiteSide : captured.blackSide,
+        diff: side === 'white'
+            ? (materialDiff > 0 ? materialDiff : 0)
+            : (materialDiff < 0 ? Math.abs(materialDiff) : 0)
+    });
+    const topMaterial = getSideMaterial(topSide);
+    const bottomMaterial = getSideMaterial(bottomSide);
 
     // const getInitialTimeDisplay = (timeStr) => {
     //     const config = gameLogic.parseTimeControl(timeStr);
@@ -85,12 +139,7 @@ const GameBoard = () => {
                     if (res.data.game_id) {
                         setIsFlipped(res.data.player_color === 'black');
                         
-                        let bData = null;
-                        for (const cat of botCategories) {
-                            const found = cat.bots.find(b => b.elo === res.data.bot_elo);
-                            if (found) { bData = found; break; }
-                        }
-                        setOpponent(bData);
+                        setOpponent(findBotByGameData(res.data));
                     }
                 } catch (e) { console.error("Hiba az ellenfél pótlásakor"); }
             }
@@ -173,14 +222,7 @@ const GameBoard = () => {
                 const res = await axios.get(`${API_BASE}/get-active-game`, { 
                     headers: { Authorization: `Bearer ${token}` } 
                 });
-                if (res.data.bot_elo) {
-                    let bData = null;
-                    for (const cat of botCategories) {
-                        const found = cat.bots.find(b => b.elo === res.data.bot_elo);
-                        if (found) { bData = found; break; }
-                    }
-                    setOpponent(bData);
-                }
+                setOpponent(findBotByGameData(res.data));
             }
             
             // 4. Navigálunk a bots oldalra (ahol a MoveListPanel lakik)
@@ -277,8 +319,9 @@ const GameBoard = () => {
         const playNavSound = (notation) => {
             if (!notation || notation === "start") return;
             if (notation.includes('#')) playSound('checkmate');
-            else if (notation.includes('+')) playSound('move-check');
+            else if (notation.includes('=')) playSound('promote');
             else if (notation.includes('O-O')) playSound('castle');
+            else if (notation.includes('+')) playSound('move-check');
             else if (notation.includes('x')) playSound('capture');
             else playSound('move');
         };
@@ -383,8 +426,8 @@ const GameBoard = () => {
             setWhiteTime(config.base);
             setBlackTime(config.base);
         } else {
-            setWhiteTime(600);
-            setBlackTime(600);
+            setWhiteTime(0);
+            setBlackTime(0);
         }
     };
 
@@ -422,6 +465,11 @@ const GameBoard = () => {
                             ({opponent?.elo || previewOpponent?.elo})
                         </span>
                     )}
+                    <CapturedRow
+                        pieces={topMaterial.pieces}
+                        side={topSide}
+                        diff={topMaterial.diff}
+                    />
                 </div>
             </div>
 
@@ -519,6 +567,11 @@ const GameBoard = () => {
                         <span className="text-[#bab9b8] font-bold text-[14px] leading-none">
                             {userName}
                         </span>
+                        <CapturedRow
+                            pieces={bottomMaterial.pieces}
+                            side={bottomSide}
+                            diff={bottomMaterial.diff}
+                        />
                     </div>
                 </div>
 
@@ -564,6 +617,7 @@ const GameBoard = () => {
                 isPopupClosed,
                 setIsPopupClosed,
                 setIsPopupVisible:delayedShowPopup,
+                goToMove,
                 handleRunFullAnalysis, // <--- EZ HIÁNYZOTT
                 analysisData,          // <--- EZ HIÁNYZOTT
                 isAnalyzing,

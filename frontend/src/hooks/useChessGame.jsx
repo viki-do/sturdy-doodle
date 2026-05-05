@@ -31,7 +31,6 @@ export const useChessGame = () => {
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     const [hoverSquare, setHoverSquare] = useState(null);
     const [pendingPromotion, setPendingPromotion] = useState(null);
-    const userId = localStorage.getItem('chessUserId');
     const token = localStorage.getItem('chessToken');
     const [reason, setReason] = useState("");
     const [whiteTime, setWhiteTime] = useState(600);
@@ -43,6 +42,7 @@ export const useChessGame = () => {
     const [opening, setOpening] = useState(null);
     const turnStartTimeRef = useRef(Date.now());
     const lastPlayedMoveNum = useRef(0);
+    const processedBotFenRef = useRef(new Set());
     // const lastPlayedTickRef = useRef(-1);
     const lastBotRef = useRef({ elo: 1500, id: 'engine', style: 'mix' });
     const [isFlipped, setIsFlipped] = useState(false);
@@ -50,8 +50,18 @@ export const useChessGame = () => {
 
     const playSound = useCallback((soundName) => {
         const audio = new Audio(`/assets/sounds/${soundName}.mp3`);
-        audio.play().catch(err => console.log(`Audio error: ${soundName}`));
+        audio.play().catch(() => console.log(`Audio error: ${soundName}`));
     }, []);
+
+    const playBotMoveSound = useCallback((san) => {
+        if (!san) return;
+        if (san.includes('#')) playSound('checkmate');
+        else if (san.includes('=')) playSound('promote');
+        else if (san.includes('O-O')) playSound('castle');
+        else if (san.includes('+')) playSound('move-check');
+        else if (san.includes('x')) playSound('capture');
+        else playSound('move');
+    }, [playSound]);
 
     const getSquareName = useCallback((row, col) => {
         const filesArr = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -89,6 +99,20 @@ export const useChessGame = () => {
                     setIsFlipped(res.data.player_color === 'black');
                 }
 
+                const restoredBaseTime = Number(res.data.base_time_sec);
+                if (Number.isFinite(restoredBaseTime)) {
+                    if (restoredBaseTime <= 0) {
+                        setLastTimeControl("No Timer");
+                        setWhiteTime(0);
+                        setBlackTime(0);
+                        setIncrement(0);
+                    } else if (lastTimeControl === "No Timer") {
+                        setLastTimeControl(`${Math.round(restoredBaseTime / 60)} min`);
+                        setWhiteTime(restoredBaseTime);
+                        setBlackTime(restoredBaseTime);
+                    }
+                }
+
                 setHistory(prevHistory => {
                     if (prevHistory.length === 0) return serverHistory;
                     return serverHistory.map((serverMove, index) => {
@@ -120,7 +144,7 @@ export const useChessGame = () => {
         } catch (err) { 
             console.error("Hiba a játék betöltésekor:", err); 
         }
-    }, [token, API_BASE, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);
+    }, [token, API_BASE, lastTimeControl, setFen, setLastMove, setActiveTimeColor, setStatus, setOpening, setHistory, setIsFlipped]);
 
 
     const resetGame = useCallback(() => {
@@ -134,6 +158,7 @@ export const useChessGame = () => {
         setViewIndex(-1);
         setActiveTimeColor(null);
         lastPlayedMoveNum.current = 0;
+        processedBotFenRef.current.clear();
         // JAVÍTÁS: Socket lekapcsolása resetkor
         socket.emit("leave_game", { game_id: gameId });
     }, [gameId]);
@@ -151,14 +176,16 @@ export const useChessGame = () => {
         setGameId(null);
         setStatus("");
         setHistory([]);
+        processedBotFenRef.current.clear();
         if (bot && typeof bot === 'object' && bot.elo) {
             lastBotRef.current = bot;
         }
         const currentBot = (bot && typeof bot === 'object') ? bot : lastBotRef.current;
 
-        const finalTimeControl = timeControl || lastTimeControl || "No Timer";
+        const finalTimeControl = timeControl ?? lastTimeControl ?? "No Timer";
         const config = parseTimeControl(finalTimeControl);
-        const initialTime = config.base || 600;
+        const hasTimer = config.base !== null && config.base !== undefined;
+        const initialTime = hasTimer ? config.base : 0;
 
         whiteWarnedRef.current = false;
         blackWarnedRef.current = false;
@@ -181,7 +208,7 @@ export const useChessGame = () => {
                     bot_elo: currentBot.elo,
                     bot_id: currentBot.id,
                     bot_style: currentBot.style || "mix",
-                    time_category: initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid",
+                    time_category: hasTimer ? (initialTime < 180 ? "bullet" : initialTime < 600 ? "blitz" : "rapid") : "custom",
                     base_time: initialTime,
                     time_control: finalTimeControl
                 },
@@ -292,12 +319,18 @@ const initializeGame = useCallback(async () => {
 
     const goToMove = useCallback((index) => {
         setSelectedSquare(null);
+        const playNavSound = (notation) => {
+            if (!notation || notation === "start") return;
+            playBotMoveSound(notation);
+        };
+
         if (index === -1 || index >= history.length - 1) {
             setViewIndex(-1);
             const latest = history[history.length - 1];
             if (latest) {
                 setFen(latest.fen);
                 setLastMove({ from: latest.from, to: latest.to });
+                playNavSound(latest.m);
             }
             return;
         }
@@ -306,8 +339,9 @@ const initializeGame = useCallback(async () => {
             setFen(move.fen);
             setLastMove({ from: move.from, to: move.to });
             setViewIndex(index);
+            playNavSound(move.m);
         }
-    }, [history]);
+    }, [history, playBotMoveSound]);
 
     const executeMove = async (from, to, promotion = null) => {
         const chess = new Chess(fen);
@@ -388,6 +422,40 @@ const initializeGame = useCallback(async () => {
             
             // JAVÍTÁS: A bot_move kezelést kivettük innen, mert a Socket.io-n érkezik!
             
+            if (res.data.bot_move?.san && res.data.new_fen && !processedBotFenRef.current.has(res.data.new_fen)) {
+                processedBotFenRef.current.add(res.data.new_fen);
+                const botMove = res.data.bot_move;
+                const nextTurnColor = res.data.new_fen.split(' ')[1];
+
+                setHistory(prev => {
+                    if (prev.some(m => m.fen === res.data.new_fen)) return prev;
+
+                    return [
+                        ...prev,
+                        {
+                            m: botMove.san,
+                            from: botMove.from,
+                            to: botMove.to,
+                            fen: res.data.new_fen,
+                            t: botMove.think_time || 0,
+                            num: prev.length,
+                            wTime: whiteTime,
+                            bTime: blackTime
+                        }
+                    ];
+                });
+
+                setFen(res.data.new_fen);
+                setLastMove({ from: botMove.from, to: botMove.to });
+                setActiveTimeColor(res.data.is_game_over ? null : nextTurnColor);
+                turnStartTimeRef.current = Date.now();
+                lastPlayedMoveNum.current = lastPlayedMoveNum.current + 1;
+
+                setTimeout(() => {
+                    playBotMoveSound(botMove.san);
+                }, 110);
+            }
+
         } catch (err) {
             console.error("Move error:", err);
         }
@@ -544,6 +612,11 @@ useEffect(() => {
 
         const botMove = data.move;
         const nextTurnColor = data.fen.split(' ')[1];
+        if (processedBotFenRef.current.has(data.fen)) {
+            console.log("WS: DuplikÃ¡lt bot FEN, kihagyva:", data.fen);
+            return;
+        }
+        processedBotFenRef.current.add(data.fen);
         
         // JAVÍTÁS: A szerver által küldött pontos gondolkodási időt használjuk
         // Ha valamiért nem jönne meg (régi backend), marad a kalkulált fallback
@@ -579,13 +652,7 @@ useEffect(() => {
 
         // Hang lejátszása késleltetve (hogy a tábla frissülése után halljuk)
         setTimeout(() => {
-            const san = botMove.san;
-            if (san.includes('#')) playSound('checkmate');
-            else if (san.includes('+')) playSound('move-check');
-            else if (san.includes('x')) playSound('capture');
-            else if (san.includes('=')) playSound('promote');
-            else if (san.includes('O-O')) playSound('castle');
-            else playSound('move');
+            playBotMoveSound(botMove.san);
         }, 110);
     };
 
@@ -620,11 +687,12 @@ useEffect(() => {
         socket.off("game_over", handleGameOver);
     };
 
-}, [gameId, playSound]); // Az időzítőket (whiteTime, blackTime) szándékosan kihagyjuk!
+}, [gameId, playBotMoveSound]); // Az időzítőket (whiteTime, blackTime) szándékosan kihagyjuk!
     // Óra effektus (Ref-ek nélkül, az eredeti logikád szerint)
     useEffect(() => {
         let timer;
-        if (gameId && gameId !== "null" && status === "ongoing" && activeTimeColor) {
+        const hasTimer = parseTimeControl(lastTimeControl).base !== null;
+        if (hasTimer && gameId && gameId !== "null" && status === "ongoing" && activeTimeColor) {
         const startTime = Date.now();
             const startValue = activeTimeColor === 'w' ? whiteTime : blackTime;
             timer = setInterval(async () => {
@@ -655,11 +723,12 @@ useEffect(() => {
             }, 50);
         }
         return () => clearInterval(timer);
-    }, [gameId, status, activeTimeColor, API_BASE, token, playSound]);
+    }, [gameId, status, activeTimeColor, lastTimeControl, API_BASE, token, playSound]);
 
     // Figyelmeztető hang effektus
     useEffect(() => {
-        if (status !== "ongoing" || !activeTimeColor) return;
+        const hasTimer = parseTimeControl(lastTimeControl).base !== null;
+        if (!hasTimer || status !== "ongoing" || !activeTimeColor) return;
         if (whiteTime <= 10 && whiteTime > 0) {
             if (!whiteWarnedRef.current) {
                 playSound('tenseconds');
@@ -676,7 +745,7 @@ useEffect(() => {
         } else if (blackTime > 10) {
             blackWarnedRef.current = false;
         }
-    }, [whiteTime, blackTime, status, playSound]);
+    }, [whiteTime, blackTime, status, activeTimeColor, lastTimeControl, playSound]);
 
     return {
         gameId, setGameId, fen, setFen, selectedSquare, setSelectedSquare, validMoves, setValidMoves,

@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, Text, Float, Index
 from sqlalchemy.dialects.postgresql import UUID
-import sqlalchemy.sql.functions as func
+from sqlalchemy import func
 from database import Base
 import uuid
 import enum
@@ -60,3 +60,44 @@ class Move(Base):
     evaluation = Column(Float, nullable=True)
     best_move_uci = Column(String, nullable=True)
     win_chance_drop = Column(Float, nullable=True)
+
+
+class ImportedGame(Base):
+    __tablename__ = "imported_games"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event = Column(String(255), nullable=True)
+    site = Column(String(255), nullable=True)
+    game_date = Column(String(20), nullable=True)
+    round = Column(String(50), nullable=True)
+    white = Column(String(255), nullable=True, index=True)
+    black = Column(String(255), nullable=True, index=True)
+    result = Column(String(20), nullable=True)
+    eco = Column(String(20), nullable=True, index=True)
+    opening = Column(String(255), nullable=True, index=True)
+    ply_count = Column(Integer, nullable=True)
+    source = Column(String(255), nullable=True)
+    pgn_object_key = Column(String(512), nullable=True, index=True)
+    moves = Column(Text, nullable=True)
+    pgn = Column(Text, nullable=True)
+    imported_at = Column(DateTime, server_default=func.now())
+
+
+Index("ix_imported_games_white_lower", func.lower(ImportedGame.white))
+Index("ix_imported_games_black_lower", func.lower(ImportedGame.black))
+Index("ix_imported_games_opening_lower", func.lower(ImportedGame.opening))
+
+
+class ImportedPgnFile(Base):
+    __tablename__ = "imported_pgn_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    object_key = Column(String(512), unique=True, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    size_bytes = Column(Integer, nullable=True)
+    status = Column(String(30), nullable=False, default="pending", index=True)
+    games_imported = Column(Integer, default=0)
+    games_skipped = Column(Integer, default=0)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, server_default=func.now())
+    completed_at = Column(DateTime, nullable=True)
