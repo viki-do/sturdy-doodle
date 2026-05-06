@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 import models
 from database import SessionLocal
+from services.historical_players import HISTORICAL_PLAYERS
 from .auth import get_current_user_id
 from .pgn_importer import import_pgn_stream
 from .r2_storage import build_pgn_object_key, get_r2_prefix_stats, upload_fileobj_to_r2
@@ -23,6 +24,8 @@ BEST_PLAYERS_OF_ALL_TIME = [
     {"name": "Alexander Alekhine", "aliases": ["alexander alekhine", "alekhine, alexander"]},
 ]
 
+CATALOG_PLAYERS = [player["name"] for player in HISTORICAL_PLAYERS]
+
 
 def get_db():
     db = SessionLocal()
@@ -41,6 +44,8 @@ def serialize_game(game):
         "round": game.round,
         "white": game.white,
         "black": game.black,
+        "white_elo": game.white_elo,
+        "black_elo": game.black_elo,
         "result": game.result,
         "eco": game.eco,
         "opening": game.opening,
@@ -71,6 +76,8 @@ def serialize_game_row(row):
         "round": data["round"],
         "white": data["white"],
         "black": data["black"],
+        "white_elo": data["white_elo"],
+        "black_elo": data["black_elo"],
         "result": data["result"],
         "eco": data["eco"],
         "opening": data["opening"],
@@ -226,6 +233,7 @@ def games(
     player1: str = "",
     player2: str = "",
     fixed_colors: bool = False,
+    sort: str = "year_desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(12, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -244,11 +252,11 @@ def games(
             """), variant_params).scalar() or 0)
 
             rows = db.execute(text(f"""
-                SELECT id, event, site, game_date, round, white, black, result, eco, opening,
+                SELECT id, event, site, game_date, round, white, black, white_elo, black_elo, result, eco, opening,
                        ply_count, source, pgn_object_key, moves
                 FROM imported_games
                 WHERE {where_clause}
-                ORDER BY id ASC
+                ORDER BY {get_games_order_sql(sort)}
                 LIMIT :limit OFFSET :offset
             """), {
                 **variant_params,
@@ -303,7 +311,7 @@ def games(
 
         total = query.count()
         rows = (
-            query.order_by(models.ImportedGame.id.desc())
+            query.order_by(*get_games_order_by(sort))
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
@@ -319,13 +327,42 @@ def games(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def get_games_order_sql(sort: str):
+    return {
+        "rating_white": "white_elo DESC NULLS LAST, id DESC",
+        "rating_black": "black_elo DESC NULLS LAST, id DESC",
+        "year_desc": "game_date DESC NULLS LAST, id DESC",
+        "year_asc": "game_date ASC NULLS LAST, id ASC",
+        "moves_desc": "ply_count DESC NULLS LAST, id DESC",
+        "moves_asc": "ply_count ASC NULLS LAST, id ASC",
+    }.get(sort, "game_date DESC NULLS LAST, id DESC")
+
+
+def get_games_order_by(sort: str):
+    return {
+        "rating_white": [models.ImportedGame.white_elo.desc().nullslast(), models.ImportedGame.id.desc()],
+        "rating_black": [models.ImportedGame.black_elo.desc().nullslast(), models.ImportedGame.id.desc()],
+        "year_desc": [models.ImportedGame.game_date.desc().nullslast(), models.ImportedGame.id.desc()],
+        "year_asc": [models.ImportedGame.game_date.asc().nullslast(), models.ImportedGame.id.asc()],
+        "moves_desc": [models.ImportedGame.ply_count.desc().nullslast(), models.ImportedGame.id.desc()],
+        "moves_asc": [models.ImportedGame.ply_count.asc().nullslast(), models.ImportedGame.id.asc()],
+    }.get(sort, [models.ImportedGame.game_date.desc().nullslast(), models.ImportedGame.id.desc()])
+
+
 def get_top_players(db: Session, limit=5):
-    rows = db.execute(text("""
+    names = get_catalog_player_names()
+    if not names:
+        return []
+
+    name_params = {f"name_{index}": value for index, value in enumerate(names)}
+    placeholders = ", ".join(f":name_{index}" for index in range(len(names)))
+    rows = db.execute(text(f"""
         SELECT name, games
         FROM imported_player_stats
+        WHERE name IN ({placeholders})
         ORDER BY games DESC, lower(name) ASC
         LIMIT :limit
-    """), {"limit": limit}).all()
+    """), {**name_params, "limit": limit}).all()
 
     return [{"name": row.name or "Unknown", "games": int(row.games or 0)} for row in rows]
 
@@ -351,12 +388,19 @@ def get_player_count_union(db: Session, search: str = ""):
 
 
 def get_players(db: Session, page: int = 1, page_size: int = 24, search: str = "", sort: str = "name"):
+    catalog_names = get_catalog_player_names()
+    if not catalog_names:
+        return {"players": [], "total": 0, "page": page, "page_size": page_size}
+
     needle = f"%{search.strip().lower()}%"
     has_search = bool(search.strip())
     order_by = "games DESC, lower(name) ASC" if sort == "games" else "lower(name) ASC"
-    where_sql = "WHERE (:has_search = false OR lower(name) LIKE :needle)"
+    name_params = {f"name_{index}": value for index, value in enumerate(catalog_names)}
+    placeholders = ", ".join(f":name_{index}" for index in range(len(catalog_names)))
+    where_sql = f"WHERE name IN ({placeholders}) AND (:has_search = false OR lower(name) LIKE :needle)"
 
     total = int(db.execute(text(f"SELECT COUNT(*) FROM imported_player_stats {where_sql}"), {
+        **name_params,
         "has_search": has_search,
         "needle": needle,
     }).scalar() or 0)
@@ -368,6 +412,7 @@ def get_players(db: Session, page: int = 1, page_size: int = 24, search: str = "
         ORDER BY {order_by}
         LIMIT :limit OFFSET :offset
     """), {
+        **name_params,
         "has_search": has_search,
         "needle": needle,
         "limit": page_size,
@@ -380,6 +425,10 @@ def get_players(db: Session, page: int = 1, page_size: int = 24, search: str = "
         "page": page,
         "page_size": page_size,
     }
+
+
+def get_catalog_player_names():
+    return sorted(set(CATALOG_PLAYERS))
 
 
 def get_best_players_of_all_time(db: Session):

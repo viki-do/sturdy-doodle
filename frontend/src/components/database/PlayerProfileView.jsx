@@ -1,14 +1,17 @@
+import { useState } from 'react';
 import {
   ArrowLeft,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Database,
   Download,
   Globe,
   Loader2,
   X,
 } from 'lucide-react';
+import DatabaseGameViewer from './DatabaseGameViewer';
 import DetailGameRow from './DetailGameRow';
 import ResultBar from './ResultBar';
 import SearchBox from './SearchBox';
@@ -22,12 +25,16 @@ const PlayerProfileView = ({
   gamesPage,
   gamesTotalPages,
   detailFilters,
+  gamesSort,
   isGamesLoading,
   onBack,
   onDetailFiltersChange,
   onDetailSearch,
+  onGamesSortChange,
   onGamesPageChange,
 }) => {
+  const [isSortOpen, setIsSortOpen] = useState(false);
+  const [selectedReplayGame, setSelectedReplayGame] = useState(null);
   const facts = getPlayerFacts(selectedPlayer.name);
   const profile = playerProfile || {
     games: selectedPlayer.games,
@@ -38,6 +45,31 @@ const PlayerProfileView = ({
     losses: 0,
   };
   const image = getPlayerImage(selectedPlayer.name);
+  const sortOptions = [
+    { value: 'rating_white', label: 'Rating (White)' },
+    { value: 'rating_black', label: 'Rating (Black)' },
+    { value: 'year_desc', label: 'Year (Most Recent)' },
+    { value: 'year_asc', label: 'Year (Oldest)' },
+    { value: 'moves_desc', label: 'Moves (Most)' },
+    { value: 'moves_asc', label: 'Moves (Fewest)' },
+  ];
+  const sortLabel = sortOptions.find((option) => option.value === gamesSort)?.label || 'Year (Most Recent)';
+
+  const handleSortSelect = (nextSort) => {
+    setIsSortOpen(false);
+    onGamesSortChange(nextSort);
+  };
+
+  if (selectedReplayGame) {
+    return (
+      <div className="min-h-screen bg-[#1e1e1e] text-[#d7d6d4] font-sans">
+        <DatabaseGameViewer
+          game={selectedReplayGame}
+          onBack={() => setSelectedReplayGame(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#302e2b] text-[#d7d6d4] p-4 md:p-8 font-sans">
@@ -137,10 +169,33 @@ const PlayerProfileView = ({
             <div className="mt-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <h2 className="text-3xl font-black text-white">{selectedPlayer.name} Chess Games</h2>
               <div className="flex items-center gap-5 text-[#d7d6d4]">
-                <button className="flex items-center gap-2 hover:text-white font-bold">
-                  Year (Most Recent)
-                  <ChevronDown size={18} />
-                </button>
+                <div
+                  className="relative"
+                  onMouseLeave={() => setIsSortOpen(false)}
+                >
+                  <button
+                    onClick={() => setIsSortOpen((current) => !current)}
+                    className="flex items-center gap-2 hover:text-white font-bold"
+                  >
+                    {sortLabel}
+                    {isSortOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  </button>
+                  {isSortOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-60 bg-[#262421] border border-[#3d3a37] rounded-md shadow-2xl overflow-hidden z-20">
+                      {sortOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => handleSortSelect(option.value)}
+                          className={`w-full px-7 py-2 text-left text-lg font-bold hover:bg-[#34312d] ${
+                            gamesSort === option.value ? 'bg-[#302d29] text-white' : 'text-[#bab9b8]'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Download size={22} className="text-[#8b8987]" />
               </div>
             </div>
@@ -158,7 +213,13 @@ const PlayerProfileView = ({
                   <Loader2 size={24} className="animate-spin text-[#81b64c]" />
                 </div>
               ) : games.length ? (
-                games.map((game) => <DetailGameRow key={game.id} game={game} />)
+                games.map((game) => (
+                  <DetailGameRow
+                    key={game.id}
+                    game={game}
+                    onOpenGame={setSelectedReplayGame}
+                  />
+                ))
               ) : (
                 <div className="h-48 flex items-center justify-center text-[#8b8987]">No games found</div>
               )}

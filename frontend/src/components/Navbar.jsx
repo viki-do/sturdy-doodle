@@ -41,6 +41,9 @@ const Navbar = () => {
                     onMouseEnter={() => setIsPlayHovered(true)}
                     onMouseLeave={() => setIsPlayHovered(false)}
                 >
+                    {isPlayHovered && (
+                        <div className="absolute left-0 top-0 w-[calc(100%+18.25rem)] h-48 z-[1990]" />
+                    )}
                     <NavItem
                         to="/play"
                         icon={
@@ -132,7 +135,7 @@ const Navbar = () => {
     
                 <a 
                     href="/analysis"
-                    onClick={(e) => {
+                    onClick={() => {
                         // Töröljük a cache-t a biztonság kedvéért még az újratöltés előtt
                         localStorage.removeItem('chess_analysis_cache');
                         // Ha már ott vagyunk, az href alapból újratöltené, de így biztosabb:
@@ -161,6 +164,9 @@ const Navbar = () => {
                     onMouseEnter={() => setIsOtherHovered(true)}
                     onMouseLeave={() => setIsOtherHovered(false)}
                 >
+                    {isOtherHovered && (
+                        <div className="absolute left-0 top-0 w-[calc(100%+18.25rem)] h-28 z-[1990]" />
+                    )}
                     <button
                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all relative group cursor-pointer ${
                             isOtherHovered

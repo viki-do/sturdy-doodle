@@ -1,0 +1,12 @@
+[
+  { "name": "Magnus Carlsen", "username": "magnuscarlsen" },
+  { "name": "Hikaru Nakamura", "username": "hikaru" },
+  { "name": "Fabiano Caruana", "username": "fabianocaruana" },
+  { "name": "Ian Nepomniachtchi", "username": "lachesisq" },
+  { "name": "Alireza Firouzja", "username": "firouzja2003" },
+  { "name": "Daniel Naroditsky", "username": "danielnaroditsky" },
+  { "name": "Levon Aronian", "username": "levonaronian" },
+  { "name": "Wesley So", "username": "gmwso" },
+  { "name": "Anish Giri", "username": "anishgiri" },
+  { "name": "Maxime Vachier-Lagrave", "username": "mvl" }
+]

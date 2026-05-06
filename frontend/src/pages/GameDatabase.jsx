@@ -27,6 +27,7 @@ const GameDatabase = () => {
   const [games, setGames] = useState([]);
   const [totalGames, setTotalGames] = useState(0);
   const [gamesPage, setGamesPage] = useState(1);
+  const [gamesSort, setGamesSort] = useState('year_desc');
   const [detailFilters, setDetailFilters] = useState({ opening: '', player2: '', fixedColors: false });
   const [isLoading, setIsLoading] = useState(true);
   const [isPlayersLoading, setIsPlayersLoading] = useState(false);
@@ -56,7 +57,7 @@ const GameDatabase = () => {
     }
   }, [authHeaders, playerSearch, sortMode]);
 
-  const fetchGamesForPlayer = useCallback(async (player, page = 1, filters = detailFilters) => {
+  const fetchGamesForPlayer = useCallback(async (player, page = 1, filters = detailFilters, sort = gamesSort) => {
     if (!player?.name) return;
     setIsGamesLoading(true);
     try {
@@ -64,6 +65,7 @@ const GameDatabase = () => {
         player1: player.name,
         page: String(page),
         page_size: String(gamesPageSize),
+        sort,
       });
       if (filters.opening.trim()) params.set('opening', filters.opening.trim());
       if (filters.player2.trim()) params.set('player2', filters.player2.trim());
@@ -82,7 +84,7 @@ const GameDatabase = () => {
     } finally {
       setIsGamesLoading(false);
     }
-  }, [authHeaders, detailFilters]);
+  }, [authHeaders, detailFilters, gamesSort]);
 
   useEffect(() => {
     let isMounted = true;
@@ -124,12 +126,18 @@ const GameDatabase = () => {
 
   const goToGamesPage = async (nextPage) => {
     if (!selectedPlayer || nextPage < 1 || nextPage > gamesTotalPages || nextPage === gamesPage) return;
-    await fetchGamesForPlayer(selectedPlayer, nextPage);
+    await fetchGamesForPlayer(selectedPlayer, nextPage, detailFilters, gamesSort);
   };
 
   const handleDetailSearch = async () => {
     if (!selectedPlayer) return;
-    await fetchGamesForPlayer(selectedPlayer, 1, detailFilters);
+    await fetchGamesForPlayer(selectedPlayer, 1, detailFilters, gamesSort);
+  };
+
+  const handleGamesSortChange = async (nextSort) => {
+    setGamesSort(nextSort);
+    if (!selectedPlayer) return;
+    await fetchGamesForPlayer(selectedPlayer, 1, detailFilters, nextSort);
   };
 
   const leaveDetail = () => {
@@ -138,6 +146,7 @@ const GameDatabase = () => {
     setGames([]);
     setTotalGames(0);
     setGamesPage(1);
+    setGamesSort('year_desc');
     setDetailFilters({ opening: '', player2: '', fixedColors: false });
   };
 
@@ -150,10 +159,12 @@ const GameDatabase = () => {
         gamesPage={gamesPage}
         gamesTotalPages={gamesTotalPages}
         detailFilters={detailFilters}
+        gamesSort={gamesSort}
         isGamesLoading={isGamesLoading}
         onBack={leaveDetail}
         onDetailFiltersChange={setDetailFilters}
         onDetailSearch={handleDetailSearch}
+        onGamesSortChange={handleGamesSortChange}
         onGamesPageChange={goToGamesPage}
       />
     );

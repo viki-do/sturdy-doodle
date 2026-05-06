@@ -69,7 +69,10 @@ def upload_fileobj_to_r2(file_obj, object_key, content_type="application/x-chess
         object_key,
         ExtraArgs={"ContentType": content_type},
     )
-    file_obj.seek(0)
+    try:
+        file_obj.seek(0)
+    except ValueError:
+        pass
     return object_key
 
 

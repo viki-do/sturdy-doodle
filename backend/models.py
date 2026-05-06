@@ -73,6 +73,8 @@ class ImportedGame(Base):
     white = Column(String(255), nullable=True, index=True)
     black = Column(String(255), nullable=True, index=True)
     result = Column(String(20), nullable=True)
+    white_elo = Column(Integer, nullable=True)
+    black_elo = Column(Integer, nullable=True)
     eco = Column(String(20), nullable=True, index=True)
     opening = Column(String(255), nullable=True, index=True)
     ply_count = Column(Integer, nullable=True)
